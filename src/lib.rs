@@ -1,3 +1,6 @@
+mod fabric_meta;
+
+use anyhow::Result;
 use regex::Regex;
 use serde::Deserialize;
 use std::{fs, path::Path};
@@ -38,7 +41,7 @@ impl ServerConfig {
     }
 }
 
-pub fn load_config(path: &Path) -> Result<Config, Box<dyn std::error::Error>> {
+pub fn load_config(path: &Path) -> Result<Config> {
     let config_content = fs::read_to_string(path)?;
     let config: Config = serde_json::from_str(&config_content)?;
 
