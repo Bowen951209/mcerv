@@ -114,7 +114,14 @@ pub async fn run() -> anyhow::Result<()> {
     // load default config
     let config_path = Path::new("config.json");
     let config = load_config(config_path).expect("Failed to load config");
+    // Check if start command is valid (might have been changed by the user manually)
+    for (_, server_config) in &config.servers {
+        server_config
+            .check_start_command()
+            .expect("Invalid start command");
+    }
     let mut state = State::new(config);
+    println!("Loaded config: {:?}", config_path);
 
     loop {
         let readline = editor.readline(">> ");
