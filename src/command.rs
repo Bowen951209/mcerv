@@ -9,7 +9,10 @@ use rustyline::{
     validate::Validator,
 };
 
-use crate::fabric_meta::{self, PrintVersionMode};
+use crate::{
+    fabric_meta::{self, PrintVersionMode},
+    state::State,
+};
 
 struct Command {
     name: &'static str,
@@ -21,6 +24,7 @@ struct Command {
 struct SubCommand {
     name: &'static str,
     sub_commands: Vec<SubCommand>,
+    options: Vec<CommandOption>,
     help: &'static str,
 }
 
@@ -61,7 +65,7 @@ impl SmartCompleter {
         subs.iter()
             .filter(|s| {
                 input.chars().last().unwrap().is_whitespace()
-                    || last_token.map_or(true, |t| s.name.contains(t))
+                    || last_token.map_or(true, |t| s.name.starts_with(t))
             })
             .map(|s| SmartCandidate {
                 word: s.name.to_string(),
@@ -82,7 +86,7 @@ impl SmartCompleter {
             .filter(|opt| {
                 last_char.is_whitespace()
                     || last_char == '-'
-                    || last_token.map_or(true, |t| opt.name.contains(t.trim_start_matches("-")))
+                    || last_token.map_or(true, |t| opt.name.starts_with(t.trim_start_matches("-")))
             })
             .map(|opt| SmartCandidate {
                 word: format!("--{}", opt.name),
@@ -133,7 +137,11 @@ impl Completer for SmartCompleter {
                                 input,
                             )
                         } else {
-                            SmartCompleter::suggest_options(&cmd.options, tokens.last(), input)
+                            SmartCompleter::suggest_options(
+                                &last_sub_cmd.options,
+                                tokens.last(),
+                                input,
+                            )
                         }
                     }
 
@@ -157,7 +165,7 @@ impl Completer for SmartCompleter {
                 let suggestions = self
                     .commands
                     .iter()
-                    .filter(|cmd| cmd.name.contains(cmd_name))
+                    .filter(|cmd| cmd.name.starts_with(cmd_name))
                     .map(|cmd| SmartCandidate {
                         word: cmd.name.to_string(),
                         desc: cmd.help,
@@ -194,30 +202,66 @@ pub fn get_editor() -> Result<Editor<SmartCompleter, FileHistory>, ReadlineError
 }
 
 fn get_completer() -> SmartCompleter {
-    let commands = vec![Command {
-        name: "list",
-        sub_commands: vec![SubCommand {
-            name: "versions",
+    let commands = vec![
+        Command {
+            name: "list",
+            sub_commands: vec![
+                SubCommand {
+                    name: "versions",
+                    sub_commands: vec![],
+                    help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
+                    options: vec![
+                        CommandOption {
+                            name: "all",
+                            help: "List all versions, stable and unstable.",
+                        },
+                        CommandOption {
+                            name: "stable-only",
+                            help: "List only stable versions.",
+                        },
+                    ],
+                },
+                SubCommand {
+                    name: "servers",
+                    sub_commands: vec![],
+                    help: "List the servers in the config file.",
+                    options: vec![],
+                },
+            ],
+            options: vec![],
+            help: "",
+        },
+        Command {
+            name: "select",
             sub_commands: vec![],
-            help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
-        }],
-        options: vec![
-            CommandOption {
-                name: "all",
-                help: "List all versions, stable and unstable.",
-            },
-            CommandOption {
-                name: "stable-only",
-                help: "List only stable versions.",
-            },
-        ],
-        help: "",
-    }];
+            options: vec![],
+            help: "Select a server from the servers list to operate on.",
+        },
+        Command {
+            name: "set",
+            sub_commands: vec![
+                SubCommand {
+                    name: "max-memory",
+                    sub_commands: vec![],
+                    help: "Set the maximum memory for the server.",
+                    options: vec![],
+                },
+                SubCommand {
+                    name: "min-memory",
+                    sub_commands: vec![],
+                    help: "Set the minimum memory for the server.",
+                    options: vec![],
+                },
+            ],
+            options: vec![],
+            help: "",
+        },
+    ];
 
     SmartCompleter { commands }
 }
 
-pub async fn execute(command: &str) {
+pub async fn execute(command: &str, state: &mut State) -> anyhow::Result<()> {
     let tokens = shlex::split(command).unwrap();
     let str_tokens = tokens.iter().map(String::as_str).collect::<Vec<_>>();
 
@@ -230,12 +274,10 @@ pub async fn execute(command: &str) {
             match (is_stable_only, is_all) {
                 (true, true) => {
                     eprintln!("--stable-only and --all are mutually exclusive.");
-                    return;
+                    return Ok(());
                 }
                 (false, false) => {
-                    fabric_meta::print_versions(PrintVersionMode::StableOnly)
-                        .await
-                        .unwrap();
+                    fabric_meta::print_versions(PrintVersionMode::StableOnly).await?;
                 }
                 _ => {
                     let mode = if is_all {
@@ -243,15 +285,74 @@ pub async fn execute(command: &str) {
                     } else {
                         PrintVersionMode::StableOnly
                     };
-                    fabric_meta::print_versions(mode).await.unwrap();
+                    fabric_meta::print_versions(mode).await?;
                 }
             }
         }
+
+        "list" if str_tokens[1] == "servers" => {
+            for (server_name, _) in state.get_config().get_servers() {
+                println!("{server_name}");
+            }
+        }
+
+        "select" => {
+            if let Some(server_name) = str_tokens.get(1) {
+                state.set_selected_server(server_name.to_string());
+            } else {
+                eprintln!("No server name provided.");
+            }
+        }
+
+        "set" => match str_tokens[1] {
+            "max-memory" => {
+                if let Some(max_memory) = str_tokens.get(2) {
+                    if let Some(server_name) = state.get_selected_server() {
+                        state
+                            .get_config_mut()
+                            .get_servers_mut()
+                            .get_mut(&server_name)
+                            .unwrap()
+                            .set_max_memory(max_memory)
+                            .unwrap();
+                        state.get_config().save()?;
+                    } else {
+                        eprintln!("No server selected.");
+                    }
+                } else {
+                    eprintln!("No max memory provided.");
+                }
+            }
+            "min-memory" => {
+                if let Some(min_memory) = str_tokens.get(2) {
+                    if let Some(server_name) = state.get_selected_server() {
+                        state
+                            .get_config_mut()
+                            .get_servers_mut()
+                            .get_mut(&server_name)
+                            .unwrap()
+                            .set_min_memory(min_memory)
+                            .unwrap();
+                        state.get_config().save()?;
+                    } else {
+                        eprintln!("No server selected.");
+                    }
+                } else {
+                    eprintln!("No min memory provided.");
+                }
+            }
+
+            _ => {
+                eprintln!("Unknown command: {}", shlex::try_join(str_tokens).unwrap());
+            }
+        },
 
         _ => {
             eprintln!("Unknown command: {}", shlex::try_join(str_tokens).unwrap());
         }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -271,6 +372,7 @@ mod tests {
                         name: "sub1",
                         sub_commands: vec![],
                         help: "",
+                        options: vec![],
                     }],
                     options: vec![CommandOption {
                         name: "opt1",

@@ -1,25 +1,48 @@
 mod command;
 mod fabric_meta;
+mod state;
 use rustyline::error::ReadlineError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use shlex::QuoteError;
-use std::{fs, path::Path};
+use std::{
+    collections::HashMap,
+    fs::{self, File},
+    path::Path,
+};
 
-#[derive(Deserialize)]
-pub struct Config {
-    pub server: ServerConfig,
-}
-
-#[derive(Deserialize)]
-pub struct ServerConfig {
-    pub start_command: String,
-}
+use crate::state::State;
 
 #[derive(Debug)]
 pub enum ConfigError {
     InvalidJarNumber,
     InvalidXmxNumber,
     InvalidXmsNumber,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Config {
+    servers: HashMap<String, ServerConfig>,
+}
+
+impl Config {
+    pub fn save(&self) -> anyhow::Result<()> {
+        let file = File::create("config.json")?;
+        serde_json::to_writer_pretty(file, &self)?;
+        Ok(())
+    }
+
+    pub fn get_servers(&self) -> &HashMap<String, ServerConfig> {
+        &self.servers
+    }
+
+    pub fn get_servers_mut(&mut self) -> &mut HashMap<String, ServerConfig> {
+        &mut self.servers
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ServerConfig {
+    pub start_command: String,
 }
 
 impl ServerConfig {
@@ -87,12 +110,18 @@ pub fn load_config(path: &Path) -> anyhow::Result<Config> {
 
 pub async fn run() -> anyhow::Result<()> {
     let mut editor = command::get_editor()?;
+
+    // load default config
+    let config_path = Path::new("config.json");
+    let config = load_config(config_path).expect("Failed to load config");
+    let mut state = State::new(config);
+
     loop {
         let readline = editor.readline(">> ");
         match readline {
             Ok(line) => {
                 editor.add_history_entry(line.trim())?;
-                command::execute(line.trim()).await;
+                command::execute(line.trim(), &mut state).await?;
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
@@ -200,15 +229,5 @@ mod tests {
             start_command: String::from("java -Xmx2G -jar some-server.jar nogui"),
         };
         assert!(config.check_start_command().is_err());
-    }
-
-    #[test]
-    fn test_valid_config1() {
-        let path = Path::new("tests/data/config1.json");
-        let config = load_config(path).unwrap();
-        assert_eq!(
-            config.server.start_command,
-            "java -Xmx2G -Xms1G -jar \"server.jar\" nogui"
-        );
     }
 }
