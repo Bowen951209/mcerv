@@ -14,11 +14,14 @@ use crate::{
     state::State,
 };
 
+type Handler = fn(&CommandManager, &mut State, &[String]) -> anyhow::Result<()>;
+
 struct Command {
     name: &'static str,
     sub_commands: Vec<SubCommand>,
     options: Vec<CommandOption>,
     help: &'static str,
+    handler: Option<Handler>,
 }
 
 struct SubCommand {
@@ -26,6 +29,7 @@ struct SubCommand {
     sub_commands: Vec<SubCommand>,
     options: Vec<CommandOption>,
     help: &'static str,
+    handler: Option<Handler>,
 }
 
 struct CommandOption {
@@ -33,11 +37,88 @@ struct CommandOption {
     help: &'static str,
 }
 
-pub struct SmartCompleter {
+pub struct CommandManager {
     commands: Vec<Command>,
+    async_runtime: tokio::runtime::Runtime,
 }
 
-impl SmartCompleter {
+impl CommandManager {
+    pub fn new() -> Self {
+        CommandManager {
+            commands: Self::create_commands(),
+            async_runtime: tokio::runtime::Runtime::new().unwrap(),
+        }
+    }
+
+    pub fn get_async_runtime(&self) -> &tokio::runtime::Runtime {
+        &self.async_runtime
+    }
+
+    fn create_commands() -> Vec<Command> {
+        vec![
+            Command {
+                name: "list",
+                sub_commands: vec![
+                    SubCommand {
+                        name: "versions",
+                        sub_commands: vec![],
+                        help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
+                        options: vec![
+                            CommandOption {
+                                name: "all",
+                                help: "List all versions, stable and unstable.",
+                            },
+                            CommandOption {
+                                name: "stable-only",
+                                help: "List only stable versions.",
+                            },
+                        ],
+                        handler: Some(Self::list_versions_handler),
+                    },
+                    SubCommand {
+                        name: "servers",
+                        sub_commands: vec![],
+                        help: "List the servers in the config file.",
+                        options: vec![],
+                        handler: Some(Self::list_servers_handler),
+                    },
+                ],
+                options: vec![],
+                help: "",
+                handler: None,
+            },
+            Command {
+                name: "select",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Select a server from the servers list to operate on.",
+                handler: Some(Self::select_handler),
+            },
+            Command {
+                name: "set",
+                sub_commands: vec![
+                    SubCommand {
+                        name: "max-memory",
+                        sub_commands: vec![],
+                        help: "Set the maximum memory for the server.",
+                        options: vec![],
+                        handler: Some(Self::set_max_memory_handler),
+                    },
+                    SubCommand {
+                        name: "min-memory",
+                        sub_commands: vec![],
+                        help: "Set the minimum memory for the server.",
+                        options: vec![],
+                        handler: Some(Self::set_min_memory_handler),
+                    },
+                ],
+                options: vec![],
+                help: "",
+                handler: None,
+            },
+        ]
+    }
+
     fn find_deepest_subcommand<'a>(
         subcommands: &'a [SubCommand],
         tokens: &[String],
@@ -57,6 +138,142 @@ impl SmartCompleter {
         Some(current)
     }
 
+    fn list_versions_handler(
+        cmd_manager: &CommandManager,
+        _: &mut State,
+        tokens: &[String],
+    ) -> anyhow::Result<()> {
+        cmd_manager.get_async_runtime().block_on(async {
+            let is_stable_only =
+                tokens.contains(&"--stable-only".to_string()) || tokens.contains(&"-s".to_string());
+            let is_all =
+                tokens.contains(&"--all".to_string()) || tokens.contains(&"-a".to_string());
+
+            match (is_stable_only, is_all) {
+                (true, true) => {
+                    eprintln!("--stable-only and --all are mutually exclusive.");
+                }
+                (false, false) => fabric_meta::print_versions(PrintVersionMode::StableOnly).await?,
+                _ => {
+                    let mode = if is_all {
+                        PrintVersionMode::All
+                    } else {
+                        PrintVersionMode::StableOnly
+                    };
+                    fabric_meta::print_versions(mode).await?
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn list_servers_handler(
+        _: &CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> anyhow::Result<()> {
+        for (server_name, _) in state.get_config().get_servers() {
+            println!("{server_name}");
+        }
+
+        Ok(())
+    }
+
+    fn select_handler(
+        _: &CommandManager,
+        state: &mut State,
+        tokens: &[String],
+    ) -> anyhow::Result<()> {
+        if let Some(server_name) = tokens.get(1) {
+            state.set_selected_server(server_name.to_string());
+        } else {
+            eprintln!("No server name provided.");
+        }
+
+        Ok(())
+    }
+
+    fn set_max_memory_handler(
+        _: &CommandManager,
+        state: &mut State,
+        tokens: &[String],
+    ) -> anyhow::Result<()> {
+        if let Some(max_memory) = tokens.get(2) {
+            if let Some(server_name) = state.get_selected_server() {
+                state
+                    .get_config_mut()
+                    .get_servers_mut()
+                    .get_mut(&server_name)
+                    .unwrap()
+                    .set_max_memory(max_memory)
+                    .unwrap();
+                state.get_config().save()?;
+            } else {
+                eprintln!("No server selected.");
+            }
+        } else {
+            eprintln!("No max memory provided.");
+        }
+
+        Ok(())
+    }
+
+    fn set_min_memory_handler(
+        _: &CommandManager,
+        state: &mut State,
+        tokens: &[String],
+    ) -> anyhow::Result<()> {
+        if let Some(min_memory) = tokens.get(2) {
+            if let Some(server_name) = state.get_selected_server() {
+                state
+                    .get_config_mut()
+                    .get_servers_mut()
+                    .get_mut(&server_name)
+                    .unwrap()
+                    .set_min_memory(min_memory)
+                    .unwrap();
+                state.get_config().save()?;
+            } else {
+                eprintln!("No server selected.");
+            }
+        } else {
+            eprintln!("No min memory provided.");
+        }
+
+        Ok(())
+    }
+
+    pub fn execute(&self, line: &str, state: &mut State) -> anyhow::Result<()> {
+        let tokens = shlex::split(line).unwrap();
+
+        if let Some(main_cmd) = self.commands.iter().find(|c| c.name == tokens[0]) {
+            let deepest_sub_cmd = Self::find_deepest_subcommand(&main_cmd.sub_commands, &tokens);
+
+            match deepest_sub_cmd {
+                Some(deepest_sub_cmd) => match deepest_sub_cmd.handler {
+                    Some(handler) => handler(&self, state, &tokens)?,
+                    None => {
+                        eprintln!(
+                            "Command does not have a handler. May have to provide subcommands."
+                        )
+                    }
+                },
+                None => match main_cmd.handler {
+                    Some(handler) => handler(&self, state, &tokens)?,
+                    None => {
+                        eprintln!(
+                            "Command does not have a handler. May have to provide subcommands."
+                        )
+                    }
+                },
+            }
+        } else {
+            eprintln!("Unknown command: {}", line);
+        }
+
+        Ok(())
+    }
+
     fn suggest_subcommands<'a>(
         subs: &'a [SubCommand],
         last_token: Option<&String>,
@@ -74,8 +291,8 @@ impl SmartCompleter {
             .collect()
     }
 
-    fn suggest_options<'a>(
-        options: &'a [CommandOption],
+    fn suggest_options(
+        options: &[CommandOption],
         last_token: Option<&String>,
         input: &str,
     ) -> Vec<SmartCandidate> {
@@ -96,13 +313,13 @@ impl SmartCompleter {
     }
 }
 
-impl Helper for SmartCompleter {}
-impl Hinter for SmartCompleter {
+impl Helper for CommandManager {}
+impl Hinter for CommandManager {
     type Hint = String;
 }
-impl Highlighter for SmartCompleter {}
-impl Validator for SmartCompleter {}
-impl Completer for SmartCompleter {
+impl Highlighter for CommandManager {}
+impl Validator for CommandManager {}
+impl Completer for CommandManager {
     type Candidate = SmartCandidate;
 
     fn complete(
@@ -124,36 +341,27 @@ impl Completer for SmartCompleter {
 
         match maybe_cmd {
             Some(cmd) => {
-                let last_sub_cmd =
-                    SmartCompleter::find_deepest_subcommand(&cmd.sub_commands, &tokens);
+                let last_sub_cmd = Self::find_deepest_subcommand(&cmd.sub_commands, &tokens);
 
                 // Suggest subcommands or options
                 let suggestions = match last_sub_cmd {
                     Some(last_sub_cmd) => {
                         if !last_sub_cmd.sub_commands.is_empty() {
-                            SmartCompleter::suggest_subcommands(
+                            Self::suggest_subcommands(
                                 &last_sub_cmd.sub_commands,
                                 tokens.last(),
                                 input,
                             )
                         } else {
-                            SmartCompleter::suggest_options(
-                                &last_sub_cmd.options,
-                                tokens.last(),
-                                input,
-                            )
+                            Self::suggest_options(&last_sub_cmd.options, tokens.last(), input)
                         }
                     }
 
                     None => {
                         if !cmd.sub_commands.is_empty() {
-                            SmartCompleter::suggest_subcommands(
-                                &cmd.sub_commands,
-                                tokens.last(),
-                                input,
-                            )
+                            Self::suggest_subcommands(&cmd.sub_commands, tokens.last(), input)
                         } else {
-                            SmartCompleter::suggest_options(&cmd.options, tokens.last(), input)
+                            Self::suggest_options(&cmd.options, tokens.last(), input)
                         }
                     }
                 };
@@ -193,166 +401,12 @@ impl Candidate for SmartCandidate {
     }
 }
 
-pub fn get_editor() -> Result<Editor<SmartCompleter, FileHistory>, ReadlineError> {
+pub fn create_editor() -> Result<Editor<CommandManager, FileHistory>, ReadlineError> {
     let mut editor = Editor::new()?;
     editor.set_completion_show_all_if_ambiguous(true);
-    editor.set_helper(Some(get_completer()));
+    editor.set_helper(Some(CommandManager::new()));
 
     Ok(editor)
-}
-
-fn get_completer() -> SmartCompleter {
-    let commands = vec![
-        Command {
-            name: "list",
-            sub_commands: vec![
-                SubCommand {
-                    name: "versions",
-                    sub_commands: vec![],
-                    help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
-                    options: vec![
-                        CommandOption {
-                            name: "all",
-                            help: "List all versions, stable and unstable.",
-                        },
-                        CommandOption {
-                            name: "stable-only",
-                            help: "List only stable versions.",
-                        },
-                    ],
-                },
-                SubCommand {
-                    name: "servers",
-                    sub_commands: vec![],
-                    help: "List the servers in the config file.",
-                    options: vec![],
-                },
-            ],
-            options: vec![],
-            help: "",
-        },
-        Command {
-            name: "select",
-            sub_commands: vec![],
-            options: vec![],
-            help: "Select a server from the servers list to operate on.",
-        },
-        Command {
-            name: "set",
-            sub_commands: vec![
-                SubCommand {
-                    name: "max-memory",
-                    sub_commands: vec![],
-                    help: "Set the maximum memory for the server.",
-                    options: vec![],
-                },
-                SubCommand {
-                    name: "min-memory",
-                    sub_commands: vec![],
-                    help: "Set the minimum memory for the server.",
-                    options: vec![],
-                },
-            ],
-            options: vec![],
-            help: "",
-        },
-    ];
-
-    SmartCompleter { commands }
-}
-
-pub async fn execute(command: &str, state: &mut State) -> anyhow::Result<()> {
-    let tokens = shlex::split(command).unwrap();
-    let str_tokens = tokens.iter().map(String::as_str).collect::<Vec<_>>();
-
-    match str_tokens[0] {
-        "list" if str_tokens[1] == "versions" => {
-            let is_stable_only =
-                str_tokens.contains(&"--stable-only") || str_tokens.contains(&"-s");
-            let is_all = str_tokens.contains(&"--all") || str_tokens.contains(&"-a");
-
-            match (is_stable_only, is_all) {
-                (true, true) => {
-                    eprintln!("--stable-only and --all are mutually exclusive.");
-                    return Ok(());
-                }
-                (false, false) => {
-                    fabric_meta::print_versions(PrintVersionMode::StableOnly).await?;
-                }
-                _ => {
-                    let mode = if is_all {
-                        PrintVersionMode::All
-                    } else {
-                        PrintVersionMode::StableOnly
-                    };
-                    fabric_meta::print_versions(mode).await?;
-                }
-            }
-        }
-
-        "list" if str_tokens[1] == "servers" => {
-            for (server_name, _) in state.get_config().get_servers() {
-                println!("{server_name}");
-            }
-        }
-
-        "select" => {
-            if let Some(server_name) = str_tokens.get(1) {
-                state.set_selected_server(server_name.to_string());
-            } else {
-                eprintln!("No server name provided.");
-            }
-        }
-
-        "set" => match str_tokens[1] {
-            "max-memory" => {
-                if let Some(max_memory) = str_tokens.get(2) {
-                    if let Some(server_name) = state.get_selected_server() {
-                        state
-                            .get_config_mut()
-                            .get_servers_mut()
-                            .get_mut(&server_name)
-                            .unwrap()
-                            .set_max_memory(max_memory)
-                            .unwrap();
-                        state.get_config().save()?;
-                    } else {
-                        eprintln!("No server selected.");
-                    }
-                } else {
-                    eprintln!("No max memory provided.");
-                }
-            }
-            "min-memory" => {
-                if let Some(min_memory) = str_tokens.get(2) {
-                    if let Some(server_name) = state.get_selected_server() {
-                        state
-                            .get_config_mut()
-                            .get_servers_mut()
-                            .get_mut(&server_name)
-                            .unwrap()
-                            .set_min_memory(min_memory)
-                            .unwrap();
-                        state.get_config().save()?;
-                    } else {
-                        eprintln!("No server selected.");
-                    }
-                } else {
-                    eprintln!("No min memory provided.");
-                }
-            }
-
-            _ => {
-                eprintln!("Unknown command: {}", shlex::try_join(str_tokens).unwrap());
-            }
-        },
-
-        _ => {
-            eprintln!("Unknown command: {}", shlex::try_join(str_tokens).unwrap());
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -364,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_smart_completer() {
-        let completer = SmartCompleter {
+        let completer = CommandManager {
             commands: vec![
                 Command {
                     name: "cmd1",
@@ -372,21 +426,25 @@ mod tests {
                         name: "sub1",
                         sub_commands: vec![],
                         help: "",
-                        options: vec![],
+                        options: vec![CommandOption {
+                            name: "opt1",
+                            help: "",
+                        }],
+                        handler: None,
                     }],
-                    options: vec![CommandOption {
-                        name: "opt1",
-                        help: "",
-                    }],
+                    options: vec![],
                     help: "",
+                    handler: None,
                 },
                 Command {
                     name: "cmd2",
                     sub_commands: vec![],
                     options: vec![],
                     help: "",
+                    handler: None,
                 },
             ],
+            async_runtime: tokio::runtime::Runtime::new().unwrap(),
         };
 
         let file_history = FileHistory::new();
@@ -406,24 +464,24 @@ mod tests {
         assert_suggestions(&completer, &ctx, "cmd1 sub1 ", &[String::from("--opt1")]);
         assert_suggestions(&completer, &ctx, "cmd1 sub1 -", &[String::from("--opt1")]);
         assert_suggestions(&completer, &ctx, "cmd1 sub1 --", &[String::from("--opt1")]);
-        assert_suggestions(&completer, &ctx, "cmd1 sub1 -1", &[String::from("--opt1")]);
+        assert_suggestions(&completer, &ctx, "cmd1 sub1 -o", &[String::from("--opt1")]);
+        assert_suggestions(&completer, &ctx, "cmd1 sub1 -1", &[]);
     }
 
     fn assert_suggestions(
-        completer: &SmartCompleter,
+        completer: &CommandManager,
         ctx: &Context,
         line: &str,
         expected: &[String],
     ) {
-        assert!(
-            completer
-                .complete(line, line.len(), &ctx)
-                .unwrap()
-                .1
-                .into_iter()
-                .map(|c| c.word)
-                .into_iter()
-                .all(|s| expected.contains(&s)),
-        );
+        let suggestions = completer
+            .complete(line, line.len(), &ctx)
+            .unwrap()
+            .1
+            .into_iter()
+            .map(|sc| sc.word)
+            .collect::<Vec<_>>();
+
+        assert!(expected.iter().all(|ex| suggestions.contains(&ex)));
     }
 }

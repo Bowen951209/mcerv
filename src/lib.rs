@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-use crate::state::State;
+use crate::{command::CommandManager, state::State};
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -108,8 +108,9 @@ pub fn load_config(path: &Path) -> anyhow::Result<Config> {
     Ok(config)
 }
 
-pub async fn run() -> anyhow::Result<()> {
-    let mut editor = command::get_editor()?;
+pub fn run() -> anyhow::Result<()> {
+    let mut editor = command::create_editor()?;
+    let cmd_manager = CommandManager::new();
 
     // load default config
     let config_path = Path::new("config.json");
@@ -128,7 +129,7 @@ pub async fn run() -> anyhow::Result<()> {
         match readline {
             Ok(line) => {
                 editor.add_history_entry(line.trim())?;
-                command::execute(line.trim(), &mut state).await?;
+                cmd_manager.execute(line.trim(), &mut state)?;
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
