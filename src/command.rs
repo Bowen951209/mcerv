@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use rustyline::{
     Context, Editor, Helper,
     completion::{Candidate, Completer},
@@ -143,7 +145,9 @@ impl CommandManager {
         _: &mut State,
         tokens: &[String],
     ) -> anyhow::Result<()> {
-        cmd_manager.get_async_runtime().block_on(async {
+        let start = SystemTime::now();
+
+        let result = cmd_manager.get_async_runtime().block_on(async {
             let is_stable_only =
                 tokens.contains(&"--stable-only".to_string()) || tokens.contains(&"-s".to_string());
             let is_all =
@@ -164,7 +168,13 @@ impl CommandManager {
                 }
             }
             Ok(())
-        })
+        });
+
+        let end = SystemTime::now();
+        let duration = end.duration_since(start)?;
+        println!("Took {}ms", duration.as_millis());
+
+        result
     }
 
     fn list_servers_handler(
