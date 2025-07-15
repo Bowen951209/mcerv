@@ -1,6 +1,8 @@
-use anyhow::Result;
+use std::{fs::File, io::copy, path::Path};
+
+use anyhow::{Result, anyhow};
 use prettytable::{Table, row};
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, de::DeserializeOwned};
 
 #[derive(Deserialize)]
@@ -33,6 +35,38 @@ pub struct FabricInstallerVersion {
 pub enum PrintVersionMode {
     All,
     StableOnly,
+}
+
+pub async fn download_server(
+    game_version: &str,
+    fabric_loader_version: &str,
+    installer_version: &str,
+) -> Result<()> {
+    let url = format!(
+        "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
+        game_version, fabric_loader_version, installer_version
+    );
+
+    let client = Client::new();
+
+    let response = client.head(&url).send().await?;
+
+    if response.status() != StatusCode::OK {
+        return Err(anyhow!(
+            "Failed to fetch server jar. Probably invalid versions.".to_string()
+        ));
+    }
+
+    let filename = format!(
+        "fabric-server-mc.{}-loader.{}-launcher.{}.jar",
+        game_version, fabric_loader_version, installer_version
+    );
+    let out_path = Path::new(&filename);
+    let mut out_file = File::create(&out_path)?;
+    let content = response.bytes().await?;
+    copy(&mut content.as_ref(), &mut out_file)?;
+
+    Ok(())
 }
 
 pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {

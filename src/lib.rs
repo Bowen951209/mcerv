@@ -129,7 +129,9 @@ pub fn run() -> anyhow::Result<()> {
         match readline {
             Ok(line) => {
                 editor.add_history_entry(line.trim())?;
-                cmd_manager.execute(line.trim(), &mut state)?;
+                cmd_manager
+                    .execute(line.trim(), &mut state)
+                    .unwrap_or_else(|e| eprintln!("Error executing command: {}", e));
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");

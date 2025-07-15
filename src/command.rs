@@ -1,4 +1,4 @@
-use std::{process, time::SystemTime};
+use std::{fmt::Display, process, time::SystemTime};
 
 use rustyline::{
     Context, Editor, Helper,
@@ -16,7 +16,22 @@ use crate::{
     state::State,
 };
 
-type Handler = fn(&CommandManager, &mut State, &[String]) -> anyhow::Result<()>;
+type Handler = fn(&CommandManager, &mut State, &[String]) -> Result<(), String>;
+
+#[derive(Copy, Clone, Debug)]
+enum OptionError {
+    MissingValue,
+    InvalidOption,
+}
+
+impl Display for OptionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OptionError::MissingValue => write!(f, "Missing value for option."),
+            OptionError::InvalidOption => write!(f, "Invalid option."),
+        }
+    }
+}
 
 struct Command {
     name: &'static str,
@@ -119,6 +134,26 @@ impl CommandManager {
                 handler: None,
             },
             Command {
+                name: "download",
+                sub_commands: vec![],
+                options: vec![
+                    CommandOption {
+                        name: "game",
+                        help: "The Minecraft version.",
+                    },
+                    CommandOption {
+                        name: "loader",
+                        help: "The Fabric Loader version.",
+                    },
+                    CommandOption {
+                        name: "installer",
+                        help: "The Fabric Installer version.",
+                    },
+                ],
+                help: "Download the selected versions for the server.",
+                handler: Some(Self::download_server_handler),
+            },
+            Command {
                 name: "exit",
                 sub_commands: vec![],
                 options: vec![],
@@ -151,44 +186,39 @@ impl CommandManager {
         cmd_manager: &CommandManager,
         _: &mut State,
         tokens: &[String],
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), String> {
         let start = SystemTime::now();
 
-        let result = cmd_manager.get_async_runtime().block_on(async {
-            let is_stable_only =
-                tokens.contains(&"--stable-only".to_string()) || tokens.contains(&"-s".to_string());
-            let is_all =
-                tokens.contains(&"--all".to_string()) || tokens.contains(&"-a".to_string());
-
-            match (is_stable_only, is_all) {
-                (true, true) => {
-                    eprintln!("--stable-only and --all are mutually exclusive.");
-                }
-                (false, false) => fabric_meta::print_versions(PrintVersionMode::StableOnly).await?,
-                _ => {
-                    let mode = if is_all {
-                        PrintVersionMode::All
-                    } else {
-                        PrintVersionMode::StableOnly
-                    };
-                    fabric_meta::print_versions(mode).await?
-                }
+        let mode = match (
+            tokens.contains(&"--stable-only".to_string()),
+            tokens.contains(&"--all".to_string()),
+        ) {
+            (true, true) => {
+                return Err("--stable-only and --all are mutually exclusive.".to_string());
             }
-            Ok(())
-        });
+            (false, false) => PrintVersionMode::StableOnly,
+            (_, true) => PrintVersionMode::All,
+            (true, _) => PrintVersionMode::StableOnly,
+        };
+
+        cmd_manager
+            .get_async_runtime()
+            .block_on(fabric_meta::print_versions(mode))
+            .map_err(|e| format!("print versions failed. {}", e))?;
 
         let end = SystemTime::now();
-        let duration = end.duration_since(start)?;
+        let duration = end.duration_since(start).unwrap();
+
         println!("Took {}ms", duration.as_millis());
 
-        result
+        Ok(())
     }
 
     fn list_servers_handler(
         _: &CommandManager,
         state: &mut State,
         _: &[String],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<(), String> {
         for (server_name, _) in state.get_config().get_servers() {
             println!("{server_name}");
         }
@@ -200,12 +230,12 @@ impl CommandManager {
         _: &CommandManager,
         state: &mut State,
         tokens: &[String],
-    ) -> anyhow::Result<()> {
-        if let Some(server_name) = tokens.get(1) {
-            state.set_selected_server(server_name.to_string());
-        } else {
-            eprintln!("No server name provided.");
-        }
+    ) -> Result<(), String> {
+        let server_name = tokens
+            .get(1)
+            .ok_or_else(|| "No server name provided.".to_string())?;
+
+        state.set_selected_server(server_name.to_owned());
 
         Ok(())
     }
@@ -214,57 +244,108 @@ impl CommandManager {
         _: &CommandManager,
         state: &mut State,
         tokens: &[String],
-    ) -> anyhow::Result<()> {
-        if let Some(max_memory) = tokens.get(2) {
-            if let Some(server_name) = state.get_selected_server() {
-                state
-                    .get_config_mut()
-                    .get_servers_mut()
-                    .get_mut(&server_name)
-                    .unwrap()
-                    .set_max_memory(max_memory)
-                    .unwrap();
-                state.get_config().save()?;
-            } else {
-                eprintln!("No server selected.");
-            }
-        } else {
-            eprintln!("No max memory provided.");
-        }
+    ) -> Result<(), String> {
+        let max_memory = match tokens.get(1) {
+            Some(memory) => memory,
+            None => return Err("No max memory provided.".to_string()),
+        };
 
-        Ok(())
+        let selected_server = match state.get_selected_server() {
+            Some(server) => server,
+            None => return Err("No server selected.".to_string()),
+        };
+
+        let server_config = state
+            .get_config_mut()
+            .get_servers_mut()
+            .get_mut(&selected_server)
+            .unwrap();
+
+        server_config.set_max_memory(max_memory).unwrap();
+
+        state
+            .get_config()
+            .save()
+            .map_err(|e| format!("Failed to save config. Error: {}", e))
     }
 
     fn set_min_memory_handler(
         _: &CommandManager,
         state: &mut State,
         tokens: &[String],
-    ) -> anyhow::Result<()> {
-        if let Some(min_memory) = tokens.get(2) {
-            if let Some(server_name) = state.get_selected_server() {
-                state
-                    .get_config_mut()
-                    .get_servers_mut()
-                    .get_mut(&server_name)
-                    .unwrap()
-                    .set_min_memory(min_memory)
-                    .unwrap();
-                state.get_config().save()?;
-            } else {
-                eprintln!("No server selected.");
+    ) -> Result<(), String> {
+        let min_memory = match tokens.get(1) {
+            Some(memory) => memory,
+            None => return Err("No min memory provided.".to_string()),
+        };
+
+        let selected_server = match state.get_selected_server() {
+            Some(server) => server,
+            None => return Err("No server selected.".to_string()),
+        };
+
+        let server_config = state
+            .get_config_mut()
+            .get_servers_mut()
+            .get_mut(&selected_server)
+            .unwrap();
+
+        server_config.set_min_memory(min_memory).unwrap();
+
+        state
+            .get_config()
+            .save()
+            .map_err(|e| format!("Failed to save config. Error: {}", e))
+    }
+
+    fn download_server_handler(
+        cmd_manager: &CommandManager,
+        _: &mut State,
+        tokens: &[String],
+    ) -> Result<(), String> {
+        let game_version = match Self::get_option_value("game", tokens) {
+            Ok(val) => val,
+            Err(e) => {
+                return Err(format!("Missing or invalid --game option: {}", e));
             }
-        } else {
-            eprintln!("No min memory provided.");
-        }
+        };
+
+        let fabric_loader_version = match Self::get_option_value("loader", tokens) {
+            Ok(val) => val,
+            Err(e) => {
+                return Err(format!("Missing or invalid --loader option: {}", e));
+            }
+        };
+
+        let installer_version = match Self::get_option_value("installer", tokens) {
+            Ok(val) => val,
+            Err(e) => {
+                return Err(format!("Missing or invalid --installer option: {}", e));
+            }
+        };
+
+        println!("Downloading executable server...");
+        let start = SystemTime::now();
+        cmd_manager
+            .get_async_runtime()
+            .block_on(fabric_meta::download_server(
+                game_version,
+                fabric_loader_version,
+                installer_version,
+            ))
+            .map_err(|e| format!("Download executable server (.jar) failed. {}", e))?;
+        let end = SystemTime::now();
+        let duration = end.duration_since(start).unwrap();
+        println!("Download complete. Took {}ms", duration.as_millis());
 
         Ok(())
     }
 
-    fn exit_handler(_: &CommandManager, _: &mut State, _: &[String]) -> anyhow::Result<()> {
+    fn exit_handler(_: &CommandManager, _: &mut State, _: &[String]) -> anyhow::Result<(), String> {
         process::exit(0)
     }
 
-    pub fn execute(&self, line: &str, state: &mut State) -> anyhow::Result<()> {
+    pub fn execute(&self, line: &str, state: &mut State) -> Result<(), String> {
         let tokens = shlex::split(line).unwrap();
 
         if let Some(main_cmd) = self.commands.iter().find(|c| c.name == tokens[0]) {
@@ -314,7 +395,7 @@ impl CommandManager {
 
     fn suggest_options(
         options: &[CommandOption],
-        last_token: Option<&String>,
+        tokens: &[String],
         input: &str,
     ) -> Vec<SmartCandidate> {
         let last_char = input.chars().last().unwrap();
@@ -324,13 +405,38 @@ impl CommandManager {
             .filter(|opt| {
                 last_char.is_whitespace()
                     || last_char == '-'
-                    || last_token.map_or(true, |t| opt.name.starts_with(t.trim_start_matches("-")))
+                    || tokens
+                        .last()
+                        .map_or(true, |t| opt.name.starts_with(t.trim_start_matches("-")))
             })
+            .filter(|opt| !tokens.contains(&format!("--{}", opt.name)))
             .map(|opt| SmartCandidate {
                 word: format!("--{}", opt.name),
                 desc: opt.help,
             })
             .collect()
+    }
+
+    fn get_option_value<'a>(
+        option_name: &str,
+        tokens: &'a [String],
+    ) -> Result<&'a String, OptionError> {
+        tokens
+            .iter()
+            .position(|t| t == &format!("--{option_name}"))
+            .ok_or(OptionError::InvalidOption)
+            .and_then(|i| {
+                tokens
+                    .get(i + 1)
+                    .ok_or(OptionError::MissingValue)
+                    .and_then(|v| {
+                        if v.starts_with("--") {
+                            Err(OptionError::MissingValue)
+                        } else {
+                            Ok(v)
+                        }
+                    })
+            })
     }
 }
 
@@ -374,7 +480,7 @@ impl Completer for CommandManager {
                                 input,
                             )
                         } else {
-                            Self::suggest_options(&last_sub_cmd.options, tokens.last(), input)
+                            Self::suggest_options(&last_sub_cmd.options, &tokens, input)
                         }
                     }
 
@@ -382,7 +488,7 @@ impl Completer for CommandManager {
                         if !cmd.sub_commands.is_empty() {
                             Self::suggest_subcommands(&cmd.sub_commands, tokens.last(), input)
                         } else {
-                            Self::suggest_options(&cmd.options, tokens.last(), input)
+                            Self::suggest_options(&cmd.options, &tokens, input)
                         }
                     }
                 };
