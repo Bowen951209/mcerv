@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{process, time::SystemTime};
 
 use rustyline::{
     Context, Editor, Helper,
@@ -117,6 +117,13 @@ impl CommandManager {
                 options: vec![],
                 help: "",
                 handler: None,
+            },
+            Command {
+                name: "exit",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Exit the program.",
+                handler: Some(Self::exit_handler),
             },
         ]
     }
@@ -251,6 +258,10 @@ impl CommandManager {
         }
 
         Ok(())
+    }
+
+    fn exit_handler(_: &CommandManager, _: &mut State, _: &[String]) -> anyhow::Result<()> {
+        process::exit(0)
     }
 
     pub fn execute(&self, line: &str, state: &mut State) -> anyhow::Result<()> {
