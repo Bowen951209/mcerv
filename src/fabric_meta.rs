@@ -54,7 +54,7 @@ pub async fn download_server(
 
     let client = Client::new();
 
-    let response = client.head(&url).send().await?;
+    let response = client.get(&url).send().await?;
 
     if response.status() != StatusCode::OK {
         return Err(anyhow!(
