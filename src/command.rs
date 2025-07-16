@@ -12,7 +12,7 @@ use rustyline::{
 };
 
 use crate::{
-    ServerConfig,
+    config::ServerConfig,
     fabric_meta::{self, PrintVersionMode},
     state::State,
 };
