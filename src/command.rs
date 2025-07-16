@@ -1,4 +1,4 @@
-use std::{fmt::Display, process, time::SystemTime};
+use std::{error::Error, fmt::Display, process, time::SystemTime};
 
 use rustyline::{
     Context, Editor, Helper,
@@ -33,6 +33,8 @@ impl Display for OptionError {
         }
     }
 }
+
+impl Error for OptionError {}
 
 struct Command {
     name: &'static str,
