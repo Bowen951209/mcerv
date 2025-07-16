@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use shlex::QuoteError;
 use std::{
     collections::HashMap,
+    error::Error,
+    fmt::Display,
     fs::{self, File},
     path::Path,
 };
@@ -18,6 +20,12 @@ pub enum ConfigError {
     InvalidXmxNumber,
     InvalidXmsNumber,
 }
+impl Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+impl Error for ConfigError {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -25,9 +33,74 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn load(path: &Path) -> anyhow::Result<Config> {
+        let config_content = fs::read_to_string(path)?;
+        let config: Config = serde_json::from_str(&config_content)?;
+
+        Ok(config)
+    }
+
     pub fn save(&self) -> anyhow::Result<()> {
         let file = File::create("config.json")?;
         serde_json::to_writer_pretty(file, &self)?;
+        Ok(())
+    }
+
+    pub fn add_new_folders_to_config(&mut self) -> anyhow::Result<()> {
+        let paths = fs::read_dir("instances")?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+
+        for path in paths {
+            if path.is_file() {
+                eprintln!(
+                    "Unexpected file in `instances` directory: {}",
+                    path.display()
+                );
+                continue;
+            }
+
+            let dir_name = path.file_name().unwrap().to_str().unwrap().to_owned();
+
+            if self.servers.contains_key(&dir_name) {
+                continue;
+            }
+
+            let jar_files = fs::read_dir(&path)?
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().map_or(false, |ext| ext == "jar"))
+                .collect::<Vec<_>>();
+
+            if jar_files.len() != 1 {
+                eprintln!(
+                    "Directory `{}` has {} .jar files. It will not be automatically added to the config.",
+                    path.display(),
+                    jar_files.len()
+                );
+                continue;
+            }
+
+            let jar_name = jar_files[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+
+            self.servers
+                .insert(dir_name.clone(), ServerConfig::new(&jar_name));
+            println!("Automatically added `{}` to the config.", dir_name);
+        }
+
+        self.save()?;
+        Ok(())
+    }
+
+    pub fn check_validity(&self) -> Result<(), ConfigError> {
+        for (_, server_config) in &self.servers {
+            server_config.check_start_command()?;
+        }
         Ok(())
     }
 
@@ -108,28 +181,22 @@ impl ServerConfig {
     }
 }
 
-pub fn load_config(path: &Path) -> anyhow::Result<Config> {
-    let config_content = fs::read_to_string(path)?;
-    let config: Config = serde_json::from_str(&config_content)?;
-
-    Ok(config)
-}
-
 pub fn run() -> anyhow::Result<()> {
     let mut editor = command::create_editor()?;
     let cmd_manager = CommandManager::new();
 
     // load default config
     let config_path = Path::new("config.json");
-    let config = load_config(config_path).expect("Failed to load config");
-    // Check if start command is valid (might have been changed by the user manually)
-    for (_, server_config) in &config.servers {
-        server_config
-            .check_start_command()
-            .expect("Invalid start command");
-    }
-    let mut state = State::new(config);
+    let mut config = Config::load(config_path).expect("Failed to load config");
     println!("Loaded config: {:?}", config_path);
+
+    // Check if config is valid (might have been changed by the user manually)
+    config.check_validity()?;
+
+    // If user added new folders to instances, add them to the config
+    config.add_new_folders_to_config()?;
+
+    let mut state = State::new(config);
 
     loop {
         let readline = editor.readline(">> ");
