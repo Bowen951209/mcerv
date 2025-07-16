@@ -134,7 +134,7 @@ impl CommandManager {
                 handler: None,
             },
             Command {
-                name: "download",
+                name: "add",
                 sub_commands: vec![],
                 options: vec![
                     CommandOption {
@@ -148,6 +148,10 @@ impl CommandManager {
                     CommandOption {
                         name: "installer",
                         help: "The Fabric Installer version.",
+                    },
+                    CommandOption {
+                        name: "name",
+                        help: "The name of the server folder to create.",
                     },
                 ],
                 help: "Download the selected versions for the server.",
@@ -303,40 +307,35 @@ impl CommandManager {
         _: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let game_version = match Self::get_option_value("game", tokens) {
-            Ok(val) => val,
-            Err(e) => {
-                return Err(format!("Missing or invalid --game option: {}", e));
-            }
-        };
+        let game_version = Self::get_option_value("game", tokens)
+            .map_err(|e| format!("Missing or invalid --game option: {}", e))?;
 
-        let fabric_loader_version = match Self::get_option_value("loader", tokens) {
-            Ok(val) => val,
-            Err(e) => {
-                return Err(format!("Missing or invalid --loader option: {}", e));
-            }
-        };
+        let loader_version = Self::get_option_value("loader", tokens)
+            .map_err(|e| format!("Missing or invalid --loader option: {}", e))?;
 
-        let installer_version = match Self::get_option_value("installer", tokens) {
-            Ok(val) => val,
-            Err(e) => {
-                return Err(format!("Missing or invalid --installer option: {}", e));
-            }
-        };
+        let installer_version = Self::get_option_value("installer", tokens)
+            .map_err(|e| format!("Missing or invalid --installer option: {}", e))?;
 
-        println!("Downloading executable server...");
-        let start = SystemTime::now();
+        let server_name = Self::get_option_value("name", tokens)
+            .map_err(|e| format!("Missing or invalid --name option: {}", e))?;
+
+        let start_time = SystemTime::now();
+        println!("Downloading server jar...");
         cmd_manager
             .get_async_runtime()
             .block_on(fabric_meta::download_server(
                 game_version,
-                fabric_loader_version,
+                loader_version,
                 installer_version,
+                server_name,
             ))
-            .map_err(|e| format!("Download executable server (.jar) failed. {}", e))?;
-        let end = SystemTime::now();
-        let duration = end.duration_since(start).unwrap();
-        println!("Download complete. Took {}ms", duration.as_millis());
+            .map_err(|e| format!("Failed to download server jar: {}", e))?;
+
+        let elapsed_time = start_time.elapsed().unwrap();
+        println!(
+            "Download complete. Duration: {}ms",
+            elapsed_time.as_millis()
+        );
 
         Ok(())
     }

@@ -1,4 +1,8 @@
-use std::{fs::File, io::copy, path::Path};
+use std::{
+    fs::{File, create_dir_all},
+    io::copy,
+    path::Path,
+};
 
 use anyhow::{Result, anyhow};
 use prettytable::{Table, row};
@@ -41,6 +45,7 @@ pub async fn download_server(
     game_version: &str,
     fabric_loader_version: &str,
     installer_version: &str,
+    server_name: &str,
 ) -> Result<()> {
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
@@ -57,11 +62,12 @@ pub async fn download_server(
         ));
     }
 
-    let filename = format!(
-        "fabric-server-mc.{}-loader.{}-launcher.{}.jar",
-        game_version, fabric_loader_version, installer_version
+    let path_string = format!(
+        "instances/{}/fabric-server-mc.{}-loader.{}-launcher.{}.jar",
+        server_name, game_version, fabric_loader_version, installer_version
     );
-    let out_path = Path::new(&filename);
+    let out_path = Path::new(&path_string);
+    create_dir_all(out_path.parent().expect("Failed to get parent directory"))?;
     let mut out_file = File::create(&out_path)?;
     let content = response.bytes().await?;
     copy(&mut content.as_ref(), &mut out_file)?;
