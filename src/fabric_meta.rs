@@ -46,7 +46,7 @@ pub async fn download_server(
     fabric_loader_version: &str,
     installer_version: &str,
     server_name: &str,
-) -> Result<()> {
+) -> Result<String> {
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
         game_version, fabric_loader_version, installer_version
@@ -62,17 +62,18 @@ pub async fn download_server(
         ));
     }
 
-    let path_string = format!(
-        "instances/{}/fabric-server-mc.{}-loader.{}-launcher.{}.jar",
-        server_name, game_version, fabric_loader_version, installer_version
+    let filename = format!(
+        "fabric-server-mc.{}-loader.{}-launcher.{}.jar",
+        game_version, fabric_loader_version, installer_version
     );
+    let path_string = format!("instances/{}/{}", server_name, filename);
     let out_path = Path::new(&path_string);
     create_dir_all(out_path.parent().expect("Failed to get parent directory"))?;
     let mut out_file = File::create(&out_path)?;
     let content = response.bytes().await?;
     copy(&mut content.as_ref(), &mut out_file)?;
 
-    Ok(())
+    Ok(filename)
 }
 
 pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {

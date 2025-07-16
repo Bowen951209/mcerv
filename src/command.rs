@@ -12,6 +12,7 @@ use rustyline::{
 };
 
 use crate::{
+    ServerConfig,
     fabric_meta::{self, PrintVersionMode},
     state::State,
 };
@@ -155,7 +156,7 @@ impl CommandManager {
                     },
                 ],
                 help: "Download the selected versions for the server.",
-                handler: Some(Self::download_server_handler),
+                handler: Some(Self::add_server_handler),
             },
             Command {
                 name: "exit",
@@ -223,7 +224,13 @@ impl CommandManager {
         state: &mut State,
         _: &[String],
     ) -> anyhow::Result<(), String> {
-        for (server_name, _) in state.get_config().get_servers() {
+        let servers = state.get_config().get_servers();
+        if servers.is_empty() {
+            println!("Server list is empty.");
+            return Ok(());
+        }
+
+        for (server_name, _) in servers {
             println!("{server_name}");
         }
 
@@ -302,26 +309,26 @@ impl CommandManager {
             .map_err(|e| format!("Failed to save config. Error: {}", e))
     }
 
-    fn download_server_handler(
+    fn add_server_handler(
         cmd_manager: &CommandManager,
-        _: &mut State,
+        state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
         let game_version = Self::get_option_value("game", tokens)
-            .map_err(|e| format!("Missing or invalid --game option: {}", e))?;
+            .map_err(|e| format!("Missing or invalid --game option: {e}"))?;
 
         let loader_version = Self::get_option_value("loader", tokens)
-            .map_err(|e| format!("Missing or invalid --loader option: {}", e))?;
+            .map_err(|e| format!("Missing or invalid --loader option: {e}"))?;
 
         let installer_version = Self::get_option_value("installer", tokens)
-            .map_err(|e| format!("Missing or invalid --installer option: {}", e))?;
+            .map_err(|e| format!("Missing or invalid --installer option: {e}"))?;
 
         let server_name = Self::get_option_value("name", tokens)
-            .map_err(|e| format!("Missing or invalid --name option: {}", e))?;
+            .map_err(|e| format!("Missing or invalid --name option: {e}"))?;
 
         let start_time = SystemTime::now();
         println!("Downloading server jar...");
-        cmd_manager
+        let filename = cmd_manager
             .get_async_runtime()
             .block_on(fabric_meta::download_server(
                 game_version,
@@ -329,13 +336,25 @@ impl CommandManager {
                 installer_version,
                 server_name,
             ))
-            .map_err(|e| format!("Failed to download server jar: {}", e))?;
+            .map_err(|e| format!("Failed to download server jar: {e}"))?;
 
         let elapsed_time = start_time.elapsed().unwrap();
         println!(
             "Download complete. Duration: {}ms",
             elapsed_time.as_millis()
         );
+
+        state.get_config_mut().get_servers_mut().insert(
+            server_name.to_owned(),
+            ServerConfig {
+                start_command: format!("java -Xmx4G -Xms4G -jar '{filename}' nogui"),
+            },
+        );
+        state
+            .get_config()
+            .save()
+            .map_err(|e| format!("Failed to save config: {e}"))?;
+        println!("Server added: {server_name}");
 
         Ok(())
     }
