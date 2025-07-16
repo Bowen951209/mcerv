@@ -344,12 +344,10 @@ impl CommandManager {
             elapsed_time.as_millis()
         );
 
-        state.get_config_mut().get_servers_mut().insert(
-            server_name.to_owned(),
-            ServerConfig {
-                start_command: format!("java -Xmx4G -Xms4G -jar '{filename}' nogui"),
-            },
-        );
+        state
+            .get_config_mut()
+            .get_servers_mut()
+            .insert(server_name.to_owned(), ServerConfig::new(&filename));
         state
             .get_config()
             .save()

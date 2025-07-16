@@ -46,6 +46,13 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
+    /// Create a new ServerConfig with max and min memory set to 4G.
+    pub fn new(filename: &str) -> Self {
+        ServerConfig {
+            start_command: format!("java -Xmx4G -Xms4G -jar {filename} nogui"),
+        }
+    }
+
     pub fn check_start_command(&self) -> Result<(), ConfigError> {
         let tokens = shlex::split(&self.start_command).unwrap();
 
