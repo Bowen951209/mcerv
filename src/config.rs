@@ -5,6 +5,7 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
+    io,
     path::Path,
 };
 
@@ -40,7 +41,7 @@ impl Config {
         Ok(())
     }
 
-    pub fn add_new_folders_to_config(&mut self) -> anyhow::Result<()> {
+    pub fn add_new_folders_to_config(&mut self) -> io::Result<()> {
         let paths = fs::read_dir("instances")?
             .filter_map(Result::ok)
             .map(|entry| entry.path())
@@ -87,7 +88,19 @@ impl Config {
             println!("Automatically added `{}` to the config.", dir_name);
         }
 
-        self.save()?;
+        Ok(())
+    }
+
+    pub fn retain_valid(&mut self) -> io::Result<()> {
+        let server_dirs = fs::read_dir("instances")?
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().is_dir())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        self.servers
+            .retain(|server_name, _| server_dirs.contains(server_name));
+
         Ok(())
     }
 
@@ -109,7 +122,7 @@ impl Config {
 
 #[derive(Serialize, Deserialize)]
 pub struct ServerConfig {
-    pub start_command: String,
+    start_command: String,
 }
 
 impl ServerConfig {
@@ -173,6 +186,10 @@ impl ServerConfig {
         self.start_command = shlex::try_join(str_tokens)?;
 
         Ok(())
+    }
+
+    pub fn get_start_command(&self) -> &str {
+        &self.start_command
     }
 }
 

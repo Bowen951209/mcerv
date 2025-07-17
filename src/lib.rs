@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::{command::CommandManager, config::Config, state::State};
 use rustyline::error::ReadlineError;
+use std::io::Write;
 
 pub fn run() -> anyhow::Result<()> {
     let mut editor = command::create_editor()?;
@@ -22,6 +23,12 @@ pub fn run() -> anyhow::Result<()> {
     // If user added new folders to instances, add them to the config
     config.add_new_folders_to_config()?;
 
+    // Remove any missing servers from the config
+    config.retain_valid()?;
+
+    // Save the config
+    config.save()?;
+
     let mut state = State::new(config);
 
     loop {
@@ -29,9 +36,14 @@ pub fn run() -> anyhow::Result<()> {
         match readline {
             Ok(line) => {
                 editor.add_history_entry(line.trim())?;
-                cmd_manager
-                    .execute(line.trim(), &mut state)
-                    .unwrap_or_else(|e| eprintln!("Error executing command: {}", e));
+
+                if let Some(server_writer) = state.get_writer_mut() {
+                    writeln!(server_writer, "{}", line.trim())?;
+                } else {
+                    cmd_manager
+                        .execute(line.trim(), &mut state)
+                        .unwrap_or_else(|e| eprintln!("Error executing command: {}", e));
+                }
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");

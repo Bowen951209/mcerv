@@ -1,4 +1,13 @@
-use std::{error::Error, fmt::Display, process, time::SystemTime};
+use std::{
+    env,
+    error::Error,
+    fmt::Display,
+    io::{BufRead, BufReader},
+    path::Path,
+    process::{self, Stdio},
+    thread,
+    time::SystemTime,
+};
 
 use rustyline::{
     Context, Editor, Helper,
@@ -115,6 +124,13 @@ impl CommandManager {
                 handler: Some(Self::select_handler),
             },
             Command {
+                name: "selected",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Get the currently selected server.",
+                handler: Some(Self::selected_handler),
+            },
+            Command {
                 name: "set",
                 sub_commands: vec![
                     SubCommand {
@@ -159,6 +175,13 @@ impl CommandManager {
                 ],
                 help: "Download the selected versions for the server.",
                 handler: Some(Self::add_server_handler),
+            },
+            Command {
+                name: "start",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Start the selected server.",
+                handler: Some(Self::start_server_handler),
             },
             Command {
                 name: "exit",
@@ -248,7 +271,18 @@ impl CommandManager {
             .get(1)
             .ok_or_else(|| "No server name provided.".to_string())?;
 
-        state.set_selected_server(server_name.to_owned());
+        state
+            .set_selected_server(server_name.to_owned())
+            .map_err(|e| format!("Failed to select server. Error: {e}"))?;
+
+        Ok(())
+    }
+
+    fn selected_handler(_: &CommandManager, state: &mut State, _: &[String]) -> Result<(), String> {
+        match state.get_selected_server() {
+            Some(server) => println!("{server}"),
+            None => println!("No server is selected."),
+        };
 
         Ok(())
     }
@@ -355,6 +389,49 @@ impl CommandManager {
             .save()
             .map_err(|e| format!("Failed to save config: {e}"))?;
         println!("Server added: {server_name}");
+
+        Ok(())
+    }
+
+    fn start_server_handler(
+        _: &CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> Result<(), String> {
+        let selected_server = match state.get_selected_server() {
+            Some(server) => {
+                env::set_current_dir(Path::new(format!("instances/{server}").as_str())).unwrap();
+                state.get_config().get_servers().get(&server).unwrap()
+            }
+            None => return Err("No server selected.".to_string()),
+        };
+
+        let start_cmd = shlex::split(selected_server.get_start_command()).unwrap();
+
+        let mut child = process::Command::new(&start_cmd[0])
+            .args(&start_cmd[1..])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to start server: {e}"))?;
+
+        let stdin = child.stdin.take().expect("Failed to open stdin");
+        let stdout = child.stdout.take().expect("Failed to open stdout");
+
+        state.set_writer(stdin);
+        let stdout_reader = BufReader::new(stdout);
+
+        // Thread to read Minecraft server output
+        thread::spawn(move || {
+            println!("Starting server...");
+            for line in stdout_reader.lines() {
+                match line {
+                    Ok(line) => println!("{line}"),
+                    Err(line) => eprintln!("{line}"),
+                }
+            }
+        });
 
         Ok(())
     }
