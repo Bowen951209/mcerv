@@ -441,34 +441,28 @@ impl CommandManager {
     }
 
     pub fn execute(&self, line: &str, state: &mut State) -> Result<(), String> {
-        let tokens = shlex::split(line).unwrap();
+        let tokens = shlex::split(line).ok_or("Failed to parse command".to_string())?;
 
-        if let Some(main_cmd) = self.commands.iter().find(|c| c.name == tokens[0]) {
-            let deepest_sub_cmd = Self::find_deepest_subcommand(&main_cmd.sub_commands, &tokens);
+        let command = self
+            .commands
+            .iter()
+            .find(|cmd| cmd.name == tokens[0])
+            .ok_or_else(|| format!("Unknown command: {}", tokens[0]))?;
 
-            match deepest_sub_cmd {
-                Some(deepest_sub_cmd) => match deepest_sub_cmd.handler {
-                    Some(handler) => handler(&self, state, &tokens)?,
-                    None => {
-                        eprintln!(
-                            "Command does not have a handler. May have to provide subcommands."
-                        )
-                    }
-                },
-                None => match main_cmd.handler {
-                    Some(handler) => handler(&self, state, &tokens)?,
-                    None => {
-                        eprintln!(
-                            "Command does not have a handler. May have to provide subcommands."
-                        )
-                    }
-                },
-            }
-        } else {
-            eprintln!("Unknown command: {}", line);
+        let deepest_sub_command = Self::find_deepest_subcommand(&command.sub_commands, &tokens);
+
+        let handler = match deepest_sub_command {
+            Some(sub_cmd) => sub_cmd.handler,
+            None => command.handler,
         }
+        .ok_or_else(|| {
+            format!(
+                "Command '{}' does not have a handler. May have to provide subcommands.",
+                command.name
+            )
+        })?;
 
-        Ok(())
+        handler(&self, state, &tokens)
     }
 
     fn suggest_subcommands<'a>(
