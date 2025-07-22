@@ -45,7 +45,7 @@ pub async fn download_server(
     game_version: &str,
     fabric_loader_version: &str,
     installer_version: &str,
-    server_name: &str,
+    save_dir_path: impl AsRef<Path>,
 ) -> Result<String> {
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
@@ -58,7 +58,7 @@ pub async fn download_server(
 
     if response.status() != StatusCode::OK {
         return Err(anyhow!(
-            "Failed to fetch server jar. Probably invalid versions.".to_string()
+            "Failed to fetch server jar. Probably invalid versions."
         ));
     }
 
@@ -66,10 +66,9 @@ pub async fn download_server(
         "fabric-server-mc.{}-loader.{}-launcher.{}.jar",
         game_version, fabric_loader_version, installer_version
     );
-    let path_string = format!("instances/{}/{}", server_name, filename);
-    let out_path = Path::new(&path_string);
-    create_dir_all(out_path.parent().expect("Failed to get parent directory"))?;
-    let mut out_file = File::create(&out_path)?;
+
+    create_dir_all(save_dir_path.as_ref())?;
+    let mut out_file = File::create(&save_dir_path.as_ref().join(&filename))?;
     let content = response.bytes().await?;
     copy(&mut content.as_ref(), &mut out_file)?;
 

@@ -2,7 +2,6 @@ use std::{
     env,
     error::Error,
     fmt::Display,
-    path::Path,
     process::{self},
     time::SystemTime,
 };
@@ -19,7 +18,7 @@ use rustyline::{
 };
 
 use crate::{
-    config::ServerConfig,
+    config::Config,
     fabric_meta::{self, PrintVersionMode},
     state::State,
 };
@@ -247,13 +246,12 @@ impl CommandManager {
         state: &mut State,
         _: &[String],
     ) -> anyhow::Result<(), String> {
-        let servers = state.get_config().get_servers();
-        if servers.is_empty() {
+        if state.server_names.is_empty() {
             println!("Server list is empty.");
             return Ok(());
         }
 
-        for (server_name, _) in servers {
+        for server_name in &state.server_names {
             println!("{server_name}");
         }
 
@@ -270,15 +268,15 @@ impl CommandManager {
             .ok_or_else(|| "No server name provided.".to_string())?;
 
         state
-            .set_selected_server(server_name.to_owned())
+            .select_server(server_name.to_owned())
             .map_err(|e| format!("Failed to select server. Error: {e}"))?;
 
         Ok(())
     }
 
     fn selected_handler(_: &CommandManager, state: &mut State, _: &[String]) -> Result<(), String> {
-        match state.get_selected_server() {
-            Some(server) => println!("{server}"),
+        match state.selected_server.as_ref() {
+            Some(server) => println!("{}", server.name),
             None => println!("No server is selected."),
         };
 
@@ -290,28 +288,18 @@ impl CommandManager {
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let max_memory = match tokens.get(1) {
-            Some(memory) => memory,
-            None => return Err("No max memory provided.".to_string()),
-        };
+        let max_memory = tokens.get(1).ok_or("No max memory provided.")?;
+        let selected_server = state
+            .selected_server
+            .as_mut()
+            .ok_or("No server selected.")?;
 
-        let selected_server = match state.get_selected_server() {
-            Some(server) => server,
-            None => return Err("No server selected.".to_string()),
-        };
+        selected_server.config.set_max_memory(max_memory).unwrap();
 
-        let server_config = state
-            .get_config_mut()
-            .get_servers_mut()
-            .get_mut(&selected_server)
-            .unwrap();
-
-        server_config.set_max_memory(max_memory).unwrap();
-
-        state
-            .get_config()
-            .save()
-            .map_err(|e| format!("Failed to save config. Error: {}", e))
+        selected_server
+            .config
+            .save(&selected_server.name)
+            .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
     fn set_min_memory_handler(
@@ -319,28 +307,18 @@ impl CommandManager {
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let min_memory = match tokens.get(1) {
-            Some(memory) => memory,
-            None => return Err("No min memory provided.".to_string()),
-        };
+        let min_memory = tokens.get(1).ok_or("No min memory provided.")?;
+        let selected_server = state
+            .selected_server
+            .as_mut()
+            .ok_or("No server selected.")?;
 
-        let selected_server = match state.get_selected_server() {
-            Some(server) => server,
-            None => return Err("No server selected.".to_string()),
-        };
+        selected_server.config.set_min_memory(min_memory).unwrap();
 
-        let server_config = state
-            .get_config_mut()
-            .get_servers_mut()
-            .get_mut(&selected_server)
-            .unwrap();
-
-        server_config.set_min_memory(min_memory).unwrap();
-
-        state
-            .get_config()
-            .save()
-            .map_err(|e| format!("Failed to save config. Error: {}", e))
+        selected_server
+            .config
+            .save(&selected_server.name)
+            .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
     fn add_server_handler(
@@ -360,7 +338,10 @@ impl CommandManager {
         let server_name = Self::get_option_value("name", tokens)
             .map_err(|e| format!("Missing or invalid --name option: {e}"))?;
 
+        let save_dir_path = format!("instances/{server_name}");
+
         let start_time = SystemTime::now();
+
         println!("Downloading server jar...");
         let filename = cmd_manager
             .get_async_runtime()
@@ -368,7 +349,7 @@ impl CommandManager {
                 game_version,
                 loader_version,
                 installer_version,
-                server_name,
+                save_dir_path.clone(),
             ))
             .map_err(|e| format!("Failed to download server jar: {e}"))?;
 
@@ -378,14 +359,15 @@ impl CommandManager {
             elapsed_time.as_millis()
         );
 
-        state
-            .get_config_mut()
-            .get_servers_mut()
-            .insert(server_name.to_owned(), ServerConfig::new(&filename));
-        state
-            .get_config()
-            .save()
+        let config = Config::new(&filename);
+        config
+            .save(&server_name)
             .map_err(|e| format!("Failed to save config: {e}"))?;
+
+        state
+            .update_server_names()
+            .map_err(|e| format!("Failed to update server names. Error: {e}"))?;
+
         println!("Server added: {server_name}");
 
         Ok(())
@@ -397,15 +379,16 @@ impl CommandManager {
         state: &mut State,
         _: &[String],
     ) -> Result<(), String> {
-        let selected_server = match state.get_selected_server() {
-            Some(server) => {
-                env::set_current_dir(Path::new(format!("instances/{server}").as_str())).unwrap();
-                state.get_config().get_servers().get(&server).unwrap()
-            }
-            None => return Err("No server selected.".to_string()),
-        };
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
 
-        let start_cmd = shlex::split(selected_server.get_start_command()).unwrap();
+        env::set_current_dir(format!("instances/{}", selected_server.name))
+            .map_err(|e| format!("Failed to set current directory: {e}"))?;
+
+        let start_cmd = shlex::split(&selected_server.config.start_command)
+            .ok_or("The start command is invalid")?;
 
         // Start the server in this terminal
         println!("Starting server and exiting...");
