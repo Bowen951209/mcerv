@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display};
+use std::{error::Error, fmt::Display, fs, path::Path};
 
 use crate::Config;
 
@@ -15,36 +15,48 @@ impl Display for SelectServerError {
 
 impl Error for SelectServerError {}
 
+pub struct Server {
+    pub name: String,
+    pub config: Config,
+}
+
+#[derive(Default)]
 pub struct State {
-    config: Config,
-    selected_server: Option<String>,
+    pub selected_server: Option<Server>,
+    pub server_names: Vec<String>,
 }
 
 impl State {
-    pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            selected_server: None,
-        }
-    }
-    pub fn get_config(&self) -> &Config {
-        &self.config
-    }
-
-    pub fn get_config_mut(&mut self) -> &mut Config {
-        &mut self.config
-    }
-
-    pub fn get_selected_server(&self) -> Option<String> {
-        self.selected_server.clone()
-    }
-
-    pub fn set_selected_server(&mut self, server: String) -> Result<(), SelectServerError> {
-        if !self.config.get_servers().contains_key(&server) {
-            return Err(SelectServerError::ServerNotFound);
+    pub fn select_server(&mut self, server_name: String) -> anyhow::Result<()> {
+        if !self.server_names.contains(&server_name) {
+            anyhow::bail!(SelectServerError::ServerNotFound);
         }
 
-        self.selected_server = Some(server);
+        self.selected_server = Some(Server {
+            name: server_name.clone(),
+            config: Config::load(Path::new(&format!(
+                "instances/{server_name}/multi_server_config.json",
+            )))?,
+        });
+
+        Ok(())
+    }
+
+    pub fn update_server_names(&mut self) -> anyhow::Result<()> {
+        let dir_names = fs::read_dir("instances")?
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().is_dir())
+            .map(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .expect("Failed to get directory name")
+                    .to_string()
+            })
+            .collect();
+
+        self.server_names = dir_names;
+
         Ok(())
     }
 }
