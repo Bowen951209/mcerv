@@ -8,14 +8,15 @@ use rustyline::error::ReadlineError;
 use std::fs;
 
 pub fn run() -> anyhow::Result<()> {
-    let mut editor = command::create_editor()?;
-    let cmd_manager = CommandManager::new();
-
     // Create instances directory if it doesn't exist
     fs::create_dir_all("instances")?;
 
+    let mut cmd_manager = CommandManager::new();
+
     let mut state = State::default();
-    state.update_server_names()?;
+    state.update_server_names(&mut cmd_manager)?;
+
+    let mut editor = command::create_editor(cmd_manager)?;
 
     loop {
         let readline = editor.readline(">> ");
@@ -24,9 +25,11 @@ pub fn run() -> anyhow::Result<()> {
                 let line = line.trim();
 
                 editor.add_history_entry(line)?;
+
+                let cmd_manager = editor.helper_mut().unwrap();
                 cmd_manager
                     .execute(line, &mut state)
-                    .unwrap_or_else(|e| eprintln!("Error executing command: {}", e));
+                    .unwrap_or_else(|e| eprintln!("Error executing command: {e}"));
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
@@ -36,8 +39,8 @@ pub fn run() -> anyhow::Result<()> {
                 println!("CTRL-D");
                 break;
             }
-            Err(err) => {
-                println!("Error: {:?}", err);
+            Err(e) => {
+                println!("Error: {e}");
                 break;
             }
         }
