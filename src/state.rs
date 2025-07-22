@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display, process::ChildStdin};
+use std::{error::Error, fmt::Display};
 
 use crate::Config;
 
@@ -18,7 +18,6 @@ impl Error for SelectServerError {}
 pub struct State {
     config: Config,
     selected_server: Option<String>,
-    writer: Option<ChildStdin>,
 }
 
 impl State {
@@ -26,7 +25,6 @@ impl State {
         Self {
             config,
             selected_server: None,
-            writer: None,
         }
     }
     pub fn get_config(&self) -> &Config {
@@ -48,13 +46,5 @@ impl State {
 
         self.selected_server = Some(server);
         Ok(())
-    }
-
-    pub fn set_writer(&mut self, writer: ChildStdin) {
-        self.writer = Some(writer);
-    }
-
-    pub fn get_writer_mut(&mut self) -> Option<&mut ChildStdin> {
-        self.writer.as_mut()
     }
 }

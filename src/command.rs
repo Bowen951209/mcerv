@@ -2,10 +2,8 @@ use std::{
     env,
     error::Error,
     fmt::Display,
-    io::{BufRead, BufReader},
     path::Path,
-    process::{self, Stdio},
-    thread,
+    process::{self},
     time::SystemTime,
 };
 
@@ -393,6 +391,7 @@ impl CommandManager {
         Ok(())
     }
 
+    /// Start the selected server and exit with code 0
     fn start_server_handler(
         _: &CommandManager,
         state: &mut State,
@@ -408,32 +407,14 @@ impl CommandManager {
 
         let start_cmd = shlex::split(selected_server.get_start_command()).unwrap();
 
-        let mut child = process::Command::new(&start_cmd[0])
+        // Start the server in this terminal
+        println!("Starting server and exiting...");
+        process::Command::new(&start_cmd[0])
             .args(&start_cmd[1..])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("Failed to start server: {e}"))?;
 
-        let stdin = child.stdin.take().expect("Failed to open stdin");
-        let stdout = child.stdout.take().expect("Failed to open stdout");
-
-        state.set_writer(stdin);
-        let stdout_reader = BufReader::new(stdout);
-
-        // Thread to read Minecraft server output
-        thread::spawn(move || {
-            println!("Starting server...");
-            for line in stdout_reader.lines() {
-                match line {
-                    Ok(line) => println!("{line}"),
-                    Err(line) => eprintln!("{line}"),
-                }
-            }
-        });
-
-        Ok(())
+        process::exit(0);
     }
 
     fn exit_handler(_: &CommandManager, _: &mut State, _: &[String]) -> anyhow::Result<(), String> {

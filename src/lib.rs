@@ -6,7 +6,6 @@ use std::path::Path;
 
 use crate::{command::CommandManager, config::Config, state::State};
 use rustyline::error::ReadlineError;
-use std::io::Write;
 
 pub fn run() -> anyhow::Result<()> {
     let mut editor = command::create_editor()?;
@@ -35,15 +34,12 @@ pub fn run() -> anyhow::Result<()> {
         let readline = editor.readline(">> ");
         match readline {
             Ok(line) => {
-                editor.add_history_entry(line.trim())?;
+                let line = line.trim();
 
-                if let Some(server_writer) = state.get_writer_mut() {
-                    writeln!(server_writer, "{}", line.trim())?;
-                } else {
-                    cmd_manager
-                        .execute(line.trim(), &mut state)
-                        .unwrap_or_else(|e| eprintln!("Error executing command: {}", e));
-                }
+                editor.add_history_entry(line)?;
+                cmd_manager
+                    .execute(line, &mut state)
+                    .unwrap_or_else(|e| eprintln!("Error executing command: {}", e));
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
