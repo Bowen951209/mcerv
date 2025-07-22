@@ -23,7 +23,7 @@ use crate::{
     state::State,
 };
 
-type Handler = fn(&CommandManager, &mut State, &[String]) -> Result<(), String>;
+type Handler = fn(&mut CommandManager, &mut State, &[String]) -> Result<(), String>;
 
 #[derive(Copy, Clone, Debug)]
 enum OptionError {
@@ -42,30 +42,33 @@ impl Display for OptionError {
 
 impl Error for OptionError {}
 
-struct Command {
-    name: &'static str,
-    sub_commands: Vec<SubCommand>,
-    options: Vec<CommandOption>,
-    help: &'static str,
-    handler: Option<Handler>,
+pub struct Command {
+    pub name: &'static str,
+    pub sub_commands: Vec<SubCommand>,
+    pub options: Vec<CommandOption>,
+    pub help: &'static str,
+    pub handler: Option<Handler>,
 }
 
-struct SubCommand {
-    name: &'static str,
-    sub_commands: Vec<SubCommand>,
-    options: Vec<CommandOption>,
-    help: &'static str,
-    handler: Option<Handler>,
+pub struct SubCommand {
+    // This is not a &'static str because we will define subcommands
+    // at runtime. For example, the command `select` will have a variable
+    // list of server names as subcommands for auto completion.
+    pub name: String,
+    pub sub_commands: Vec<SubCommand>,
+    pub options: Vec<CommandOption>,
+    pub help: &'static str,
+    pub handler: Option<Handler>,
 }
 
-struct CommandOption {
-    name: &'static str,
-    help: &'static str,
+pub struct CommandOption {
+    pub name: &'static str,
+    pub help: &'static str,
 }
 
 pub struct CommandManager {
-    commands: Vec<Command>,
-    async_runtime: tokio::runtime::Runtime,
+    pub commands: Vec<Command>,
+    pub async_runtime: tokio::runtime::Runtime,
 }
 
 impl CommandManager {
@@ -76,17 +79,13 @@ impl CommandManager {
         }
     }
 
-    pub fn get_async_runtime(&self) -> &tokio::runtime::Runtime {
-        &self.async_runtime
-    }
-
     fn create_commands() -> Vec<Command> {
         vec![
             Command {
                 name: "list",
                 sub_commands: vec![
                     SubCommand {
-                        name: "versions",
+                        name: "versions".to_string(),
                         sub_commands: vec![],
                         help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
                         options: vec![
@@ -102,7 +101,7 @@ impl CommandManager {
                         handler: Some(Self::list_versions_handler),
                     },
                     SubCommand {
-                        name: "servers",
+                        name: "servers".to_string(),
                         sub_commands: vec![],
                         help: "List the servers in the config file.",
                         options: vec![],
@@ -131,14 +130,14 @@ impl CommandManager {
                 name: "set",
                 sub_commands: vec![
                     SubCommand {
-                        name: "max-memory",
+                        name: "max-memory".to_string(),
                         sub_commands: vec![],
                         help: "Set the maximum memory for the server.",
                         options: vec![],
                         handler: Some(Self::set_max_memory_handler),
                     },
                     SubCommand {
-                        name: "min-memory",
+                        name: "min-memory".to_string(),
                         sub_commands: vec![],
                         help: "Set the minimum memory for the server.",
                         options: vec![],
@@ -210,7 +209,7 @@ impl CommandManager {
     }
 
     fn list_versions_handler(
-        cmd_manager: &CommandManager,
+        cmd_manager: &mut CommandManager,
         _: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
@@ -229,7 +228,7 @@ impl CommandManager {
         };
 
         cmd_manager
-            .get_async_runtime()
+            .async_runtime
             .block_on(fabric_meta::print_versions(mode))
             .map_err(|e| format!("print versions failed. {}", e))?;
 
@@ -242,7 +241,7 @@ impl CommandManager {
     }
 
     fn list_servers_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         _: &[String],
     ) -> anyhow::Result<(), String> {
@@ -259,7 +258,7 @@ impl CommandManager {
     }
 
     fn select_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
@@ -274,7 +273,11 @@ impl CommandManager {
         Ok(())
     }
 
-    fn selected_handler(_: &CommandManager, state: &mut State, _: &[String]) -> Result<(), String> {
+    fn selected_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> Result<(), String> {
         match state.selected_server.as_ref() {
             Some(server) => println!("{}", server.name),
             None => println!("No server is selected."),
@@ -284,7 +287,7 @@ impl CommandManager {
     }
 
     fn set_max_memory_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
@@ -303,7 +306,7 @@ impl CommandManager {
     }
 
     fn set_min_memory_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
@@ -322,7 +325,7 @@ impl CommandManager {
     }
 
     fn add_server_handler(
-        cmd_manager: &CommandManager,
+        cmd_manager: &mut CommandManager,
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
@@ -344,7 +347,7 @@ impl CommandManager {
 
         println!("Downloading server jar...");
         let filename = cmd_manager
-            .get_async_runtime()
+            .async_runtime
             .block_on(fabric_meta::download_server(
                 game_version,
                 loader_version,
@@ -365,7 +368,7 @@ impl CommandManager {
             .map_err(|e| format!("Failed to save config: {e}"))?;
 
         state
-            .update_server_names()
+            .update_server_names(cmd_manager)
             .map_err(|e| format!("Failed to update server names. Error: {e}"))?;
 
         println!("Server added: {server_name}");
@@ -375,7 +378,7 @@ impl CommandManager {
 
     /// Start the selected server and exit with code 0
     fn start_server_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         _: &[String],
     ) -> Result<(), String> {
@@ -400,33 +403,32 @@ impl CommandManager {
         process::exit(0);
     }
 
-    fn exit_handler(_: &CommandManager, _: &mut State, _: &[String]) -> anyhow::Result<(), String> {
+    fn exit_handler(
+        _: &mut CommandManager,
+        _: &mut State,
+        _: &[String],
+    ) -> anyhow::Result<(), String> {
         process::exit(0)
     }
 
-    pub fn execute(&self, line: &str, state: &mut State) -> Result<(), String> {
+    pub fn execute(&mut self, line: &str, state: &mut State) -> Result<(), String> {
         let tokens = shlex::split(line).ok_or("Failed to parse command".to_string())?;
 
         let command = self
             .commands
             .iter()
             .find(|cmd| cmd.name == tokens[0])
-            .ok_or_else(|| format!("Unknown command: {}", tokens[0]))?;
+            .ok_or(format!("Unknown command: {}", tokens[0]))?;
 
         let deepest_sub_command = Self::find_deepest_subcommand(&command.sub_commands, &tokens);
 
         let handler = match deepest_sub_command {
-            Some(sub_cmd) => sub_cmd.handler,
+            Some(subcommand) => subcommand.handler.or(command.handler),
             None => command.handler,
         }
-        .ok_or_else(|| {
-            format!(
-                "Command '{}' does not have a handler. May have to provide subcommands.",
-                command.name
-            )
-        })?;
+        .ok_or("Command does not have a handler.".to_string())?;
 
-        handler(&self, state, &tokens)
+        handler(self, state, &tokens)
     }
 
     fn suggest_subcommands<'a>(
@@ -517,7 +519,7 @@ impl Completer for CommandManager {
         }
 
         let cmd_name = &tokens[0];
-        let maybe_cmd = self.commands.iter().find(|cmd| cmd.name == cmd_name);
+        let maybe_cmd = self.commands.iter().find(|cmd| &cmd.name == cmd_name);
 
         match maybe_cmd {
             Some(cmd) => {
@@ -525,23 +527,25 @@ impl Completer for CommandManager {
 
                 // Suggest subcommands or options
                 let suggestions = match last_sub_cmd {
+                    // From last subcommand
                     Some(last_sub_cmd) => {
-                        if !last_sub_cmd.sub_commands.is_empty() {
+                        if last_sub_cmd.sub_commands.is_empty() {
+                            Self::suggest_options(&last_sub_cmd.options, &tokens, input)
+                        } else {
                             Self::suggest_subcommands(
                                 &last_sub_cmd.sub_commands,
                                 tokens.last(),
                                 input,
                             )
-                        } else {
-                            Self::suggest_options(&last_sub_cmd.options, &tokens, input)
                         }
                     }
 
+                    // From main command
                     None => {
-                        if !cmd.sub_commands.is_empty() {
-                            Self::suggest_subcommands(&cmd.sub_commands, tokens.last(), input)
-                        } else {
+                        if cmd.sub_commands.is_empty() {
                             Self::suggest_options(&cmd.options, &tokens, input)
+                        } else {
+                            Self::suggest_subcommands(&cmd.sub_commands, tokens.last(), input)
                         }
                     }
                 };
@@ -581,20 +585,20 @@ impl Candidate for SmartCandidate {
     }
 }
 
-pub fn create_editor() -> Result<Editor<CommandManager, FileHistory>, ReadlineError> {
+pub fn create_editor(
+    helper: CommandManager,
+) -> Result<Editor<CommandManager, FileHistory>, ReadlineError> {
     let mut editor = Editor::new()?;
     editor.set_completion_show_all_if_ambiguous(true);
-    editor.set_helper(Some(CommandManager::new()));
+    editor.set_helper(Some(helper));
 
     Ok(editor)
 }
 
 #[cfg(test)]
 mod tests {
-
-    use rustyline::history::History;
-
     use super::*;
+    use rustyline::history::History;
 
     #[test]
     fn test_smart_completer() {
@@ -603,7 +607,7 @@ mod tests {
                 Command {
                     name: "cmd1",
                     sub_commands: vec![SubCommand {
-                        name: "sub1",
+                        name: "sub1".to_string(),
                         sub_commands: vec![],
                         help: "",
                         options: vec![CommandOption {
