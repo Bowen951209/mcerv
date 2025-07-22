@@ -122,6 +122,34 @@ pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {
     Ok(())
 }
 
+pub async fn fetch_latest_stable_versions() -> Result<(String, String, String)> {
+    let (minecraft_versions, fabric_loader_versions, installer_versions) = tokio::try_join!(
+        fetch_json::<Vec<MinecraftVersion>>("https://meta.fabricmc.net/v2/versions/game"),
+        fetch_json::<Vec<FabricLoaderVersion>>("https://meta.fabricmc.net/v2/versions/loader"),
+        fetch_json::<Vec<FabricInstallerVersion>>(
+            "https://meta.fabricmc.net/v2/versions/installer"
+        ),
+    )?;
+
+    let minecraft_version = minecraft_versions
+        .into_iter()
+        .find(|v| v.stable)
+        .ok_or(anyhow!("Failed to find stable minecraft version"))?
+        .version;
+    let fabric_loader_version = fabric_loader_versions
+        .into_iter()
+        .find(|v| v.stable)
+        .ok_or(anyhow!("Failed to find stable fabric loader version"))?
+        .version;
+    let installer_version = installer_versions
+        .into_iter()
+        .find(|v| v.stable)
+        .ok_or(anyhow!("Failed to find stable fabric installer version"))?
+        .version;
+
+    Ok((minecraft_version, fabric_loader_version, installer_version))
+}
+
 async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T> {
     let client = Client::new();
     let response = client.get(url).send().await?;

@@ -168,6 +168,10 @@ impl CommandManager {
                         name: "name",
                         help: "The name of the server folder to create.",
                     },
+                    CommandOption {
+                        name: "latest-stable",
+                        help: "Use the latest stable versions for the unspecified.",
+                    },
                 ],
                 help: "Download the selected versions for the server.",
                 handler: Some(Self::add_server_handler),
@@ -329,14 +333,33 @@ impl CommandManager {
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
+        let use_latest_stable = tokens.contains(&"--latest-stable".to_string());
+        let (latest_stable_game, latest_stable_loader, latest_stable_installer) =
+            if use_latest_stable {
+                let versions = cmd_manager
+                    .async_runtime
+                    .block_on(fabric_meta::fetch_latest_stable_versions())
+                    .map_err(|e| format!("Failed to fetch latest stable versions: {e}"))?;
+
+                (Some(versions.0), Some(versions.1), Some(versions.2))
+            } else {
+                (None, None, None)
+            };
+
         let game_version = Self::get_option_value("game", tokens)
-            .map_err(|e| format!("Missing or invalid --game option: {e}"))?;
+            .ok()
+            .or(latest_stable_game.as_ref())
+            .ok_or("Missing or invalid --game option")?;
 
         let loader_version = Self::get_option_value("loader", tokens)
-            .map_err(|e| format!("Missing or invalid --loader option: {e}"))?;
+            .ok()
+            .or(latest_stable_loader.as_ref())
+            .ok_or("Missing or invalid --loader option")?;
 
         let installer_version = Self::get_option_value("installer", tokens)
-            .map_err(|e| format!("Missing or invalid --installer option: {e}"))?;
+            .ok()
+            .or(latest_stable_installer.as_ref())
+            .ok_or("Missing or invalid --installer option")?;
 
         let server_name = Self::get_option_value("name", tokens)
             .map_err(|e| format!("Missing or invalid --name option: {e}"))?;
