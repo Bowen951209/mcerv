@@ -1,4 +1,8 @@
-use std::{fs::File, io::copy, path::Path};
+use std::{
+    fs::{File, create_dir_all},
+    io::copy,
+    path::Path,
+};
 
 use anyhow::{Result, anyhow};
 use prettytable::{Table, row};
@@ -41,7 +45,8 @@ pub async fn download_server(
     game_version: &str,
     fabric_loader_version: &str,
     installer_version: &str,
-) -> Result<()> {
+    save_dir_path: impl AsRef<Path>,
+) -> Result<String> {
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
         game_version, fabric_loader_version, installer_version
@@ -49,11 +54,11 @@ pub async fn download_server(
 
     let client = Client::new();
 
-    let response = client.head(&url).send().await?;
+    let response = client.get(&url).send().await?;
 
     if response.status() != StatusCode::OK {
         return Err(anyhow!(
-            "Failed to fetch server jar. Probably invalid versions.".to_string()
+            "Failed to fetch server jar. Probably invalid versions."
         ));
     }
 
@@ -61,12 +66,13 @@ pub async fn download_server(
         "fabric-server-mc.{}-loader.{}-launcher.{}.jar",
         game_version, fabric_loader_version, installer_version
     );
-    let out_path = Path::new(&filename);
-    let mut out_file = File::create(&out_path)?;
+
+    create_dir_all(save_dir_path.as_ref())?;
+    let mut out_file = File::create(&save_dir_path.as_ref().join(&filename))?;
     let content = response.bytes().await?;
     copy(&mut content.as_ref(), &mut out_file)?;
 
-    Ok(())
+    Ok(filename)
 }
 
 pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {
@@ -114,6 +120,34 @@ pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {
     table.printstd();
 
     Ok(())
+}
+
+pub async fn fetch_latest_stable_versions() -> Result<(String, String, String)> {
+    let (minecraft_versions, fabric_loader_versions, installer_versions) = tokio::try_join!(
+        fetch_json::<Vec<MinecraftVersion>>("https://meta.fabricmc.net/v2/versions/game"),
+        fetch_json::<Vec<FabricLoaderVersion>>("https://meta.fabricmc.net/v2/versions/loader"),
+        fetch_json::<Vec<FabricInstallerVersion>>(
+            "https://meta.fabricmc.net/v2/versions/installer"
+        ),
+    )?;
+
+    let minecraft_version = minecraft_versions
+        .into_iter()
+        .find(|v| v.stable)
+        .ok_or(anyhow!("Failed to find stable minecraft version"))?
+        .version;
+    let fabric_loader_version = fabric_loader_versions
+        .into_iter()
+        .find(|v| v.stable)
+        .ok_or(anyhow!("Failed to find stable fabric loader version"))?
+        .version;
+    let installer_version = installer_versions
+        .into_iter()
+        .find(|v| v.stable)
+        .ok_or(anyhow!("Failed to find stable fabric installer version"))?
+        .version;
+
+    Ok((minecraft_version, fabric_loader_version, installer_version))
 }
 
 async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T> {

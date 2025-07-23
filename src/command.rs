@@ -1,4 +1,11 @@
-use std::{fmt::Display, process, time::SystemTime};
+use std::{
+    env,
+    error::Error,
+    fmt::Display,
+    fs::{self},
+    process::{self},
+    time::SystemTime,
+};
 
 use rustyline::{
     Context, Editor, Helper,
@@ -12,11 +19,12 @@ use rustyline::{
 };
 
 use crate::{
+    config::Config,
     fabric_meta::{self, PrintVersionMode},
     state::State,
 };
 
-type Handler = fn(&CommandManager, &mut State, &[String]) -> Result<(), String>;
+type Handler = fn(&mut CommandManager, &mut State, &[String]) -> Result<(), String>;
 
 #[derive(Copy, Clone, Debug)]
 enum OptionError {
@@ -33,30 +41,35 @@ impl Display for OptionError {
     }
 }
 
-struct Command {
-    name: &'static str,
-    sub_commands: Vec<SubCommand>,
-    options: Vec<CommandOption>,
-    help: &'static str,
-    handler: Option<Handler>,
+impl Error for OptionError {}
+
+pub struct Command {
+    pub name: &'static str,
+    pub sub_commands: Vec<SubCommand>,
+    pub options: Vec<CommandOption>,
+    pub help: &'static str,
+    pub handler: Option<Handler>,
 }
 
-struct SubCommand {
-    name: &'static str,
-    sub_commands: Vec<SubCommand>,
-    options: Vec<CommandOption>,
-    help: &'static str,
-    handler: Option<Handler>,
+pub struct SubCommand {
+    // This is not a &'static str because we will define subcommands
+    // at runtime. For example, the command `select` will have a variable
+    // list of server names as subcommands for auto completion.
+    pub name: String,
+    pub sub_commands: Vec<SubCommand>,
+    pub options: Vec<CommandOption>,
+    pub help: &'static str,
+    pub handler: Option<Handler>,
 }
 
-struct CommandOption {
-    name: &'static str,
-    help: &'static str,
+pub struct CommandOption {
+    pub name: &'static str,
+    pub help: &'static str,
 }
 
 pub struct CommandManager {
-    commands: Vec<Command>,
-    async_runtime: tokio::runtime::Runtime,
+    pub commands: Vec<Command>,
+    pub async_runtime: tokio::runtime::Runtime,
 }
 
 impl CommandManager {
@@ -67,17 +80,13 @@ impl CommandManager {
         }
     }
 
-    pub fn get_async_runtime(&self) -> &tokio::runtime::Runtime {
-        &self.async_runtime
-    }
-
     fn create_commands() -> Vec<Command> {
         vec![
             Command {
                 name: "list",
                 sub_commands: vec![
                     SubCommand {
-                        name: "versions",
+                        name: "versions".to_string(),
                         sub_commands: vec![],
                         help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
                         options: vec![
@@ -93,7 +102,7 @@ impl CommandManager {
                         handler: Some(Self::list_versions_handler),
                     },
                     SubCommand {
-                        name: "servers",
+                        name: "servers".to_string(),
                         sub_commands: vec![],
                         help: "List the servers in the config file.",
                         options: vec![],
@@ -112,17 +121,24 @@ impl CommandManager {
                 handler: Some(Self::select_handler),
             },
             Command {
+                name: "selected",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Get the currently selected server.",
+                handler: Some(Self::selected_handler),
+            },
+            Command {
                 name: "set",
                 sub_commands: vec![
                     SubCommand {
-                        name: "max-memory",
+                        name: "max-memory".to_string(),
                         sub_commands: vec![],
                         help: "Set the maximum memory for the server.",
                         options: vec![],
                         handler: Some(Self::set_max_memory_handler),
                     },
                     SubCommand {
-                        name: "min-memory",
+                        name: "min-memory".to_string(),
                         sub_commands: vec![],
                         help: "Set the minimum memory for the server.",
                         options: vec![],
@@ -134,7 +150,7 @@ impl CommandManager {
                 handler: None,
             },
             Command {
-                name: "download",
+                name: "add",
                 sub_commands: vec![],
                 options: vec![
                     CommandOption {
@@ -149,9 +165,31 @@ impl CommandManager {
                         name: "installer",
                         help: "The Fabric Installer version.",
                     },
+                    CommandOption {
+                        name: "name",
+                        help: "The name of the server folder to create.",
+                    },
+                    CommandOption {
+                        name: "latest-stable",
+                        help: "Use the latest stable versions for the unspecified.",
+                    },
                 ],
                 help: "Download the selected versions for the server.",
-                handler: Some(Self::download_server_handler),
+                handler: Some(Self::add_server_handler),
+            },
+            Command {
+                name: "accept-eula",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Accept the EULA for the selected server. This will modify the eula.txt file.",
+                handler: Some(Self::accept_eula_handler),
+            },
+            Command {
+                name: "start",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Start the selected server.",
+                handler: Some(Self::start_server_handler),
             },
             Command {
                 name: "exit",
@@ -183,7 +221,7 @@ impl CommandManager {
     }
 
     fn list_versions_handler(
-        cmd_manager: &CommandManager,
+        cmd_manager: &mut CommandManager,
         _: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
@@ -202,7 +240,7 @@ impl CommandManager {
         };
 
         cmd_manager
-            .get_async_runtime()
+            .async_runtime
             .block_on(fabric_meta::print_versions(mode))
             .map_err(|e| format!("print versions failed. {}", e))?;
 
@@ -215,11 +253,16 @@ impl CommandManager {
     }
 
     fn list_servers_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         _: &[String],
     ) -> anyhow::Result<(), String> {
-        for (server_name, _) in state.get_config().get_servers() {
+        if state.server_names.is_empty() {
+            println!("Server list is empty.");
+            return Ok(());
+        }
+
+        for server_name in &state.server_names {
             println!("{server_name}");
         }
 
@@ -227,7 +270,7 @@ impl CommandManager {
     }
 
     fn select_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
@@ -235,145 +278,216 @@ impl CommandManager {
             .get(1)
             .ok_or_else(|| "No server name provided.".to_string())?;
 
-        state.set_selected_server(server_name.to_owned());
+        state
+            .select_server(server_name.to_owned())
+            .map_err(|e| format!("Failed to select server. Error: {e}"))?;
+
+        Ok(())
+    }
+
+    fn selected_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> Result<(), String> {
+        let server_name = &state
+            .selected_server
+            .as_ref()
+            .ok_or("No server is selected.".to_string())?
+            .name;
+        println!("{server_name}");
 
         Ok(())
     }
 
     fn set_max_memory_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let max_memory = match tokens.get(1) {
-            Some(memory) => memory,
-            None => return Err("No max memory provided.".to_string()),
-        };
+        let max_memory = tokens.get(1).ok_or("No max memory provided.")?;
+        let selected_server = state
+            .selected_server
+            .as_mut()
+            .ok_or("No server selected.")?;
 
-        let selected_server = match state.get_selected_server() {
-            Some(server) => server,
-            None => return Err("No server selected.".to_string()),
-        };
+        selected_server.config.set_max_memory(max_memory).unwrap();
 
-        let server_config = state
-            .get_config_mut()
-            .get_servers_mut()
-            .get_mut(&selected_server)
-            .unwrap();
-
-        server_config.set_max_memory(max_memory).unwrap();
-
-        state
-            .get_config()
-            .save()
-            .map_err(|e| format!("Failed to save config. Error: {}", e))
+        selected_server
+            .config
+            .save(&selected_server.name)
+            .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
     fn set_min_memory_handler(
-        _: &CommandManager,
+        _: &mut CommandManager,
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let min_memory = match tokens.get(1) {
-            Some(memory) => memory,
-            None => return Err("No min memory provided.".to_string()),
-        };
+        let min_memory = tokens.get(1).ok_or("No min memory provided.")?;
+        let selected_server = state
+            .selected_server
+            .as_mut()
+            .ok_or("No server selected.")?;
 
-        let selected_server = match state.get_selected_server() {
-            Some(server) => server,
-            None => return Err("No server selected.".to_string()),
-        };
+        selected_server.config.set_min_memory(min_memory).unwrap();
 
-        let server_config = state
-            .get_config_mut()
-            .get_servers_mut()
-            .get_mut(&selected_server)
-            .unwrap();
-
-        server_config.set_min_memory(min_memory).unwrap();
-
-        state
-            .get_config()
-            .save()
-            .map_err(|e| format!("Failed to save config. Error: {}", e))
+        selected_server
+            .config
+            .save(&selected_server.name)
+            .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
-    fn download_server_handler(
-        cmd_manager: &CommandManager,
-        _: &mut State,
+    fn add_server_handler(
+        cmd_manager: &mut CommandManager,
+        state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let game_version = match Self::get_option_value("game", tokens) {
-            Ok(val) => val,
-            Err(e) => {
-                return Err(format!("Missing or invalid --game option: {}", e));
-            }
-        };
+        let use_latest_stable = tokens.contains(&"--latest-stable".to_string());
+        let (latest_stable_game, latest_stable_loader, latest_stable_installer) =
+            if use_latest_stable {
+                let versions = cmd_manager
+                    .async_runtime
+                    .block_on(fabric_meta::fetch_latest_stable_versions())
+                    .map_err(|e| format!("Failed to fetch latest stable versions: {e}"))?;
 
-        let fabric_loader_version = match Self::get_option_value("loader", tokens) {
-            Ok(val) => val,
-            Err(e) => {
-                return Err(format!("Missing or invalid --loader option: {}", e));
-            }
-        };
+                (Some(versions.0), Some(versions.1), Some(versions.2))
+            } else {
+                (None, None, None)
+            };
 
-        let installer_version = match Self::get_option_value("installer", tokens) {
-            Ok(val) => val,
-            Err(e) => {
-                return Err(format!("Missing or invalid --installer option: {}", e));
-            }
-        };
+        let game_version = Self::get_option_value("game", tokens)
+            .ok()
+            .or(latest_stable_game.as_ref())
+            .ok_or("Missing or invalid --game option")?;
 
-        println!("Downloading executable server...");
-        let start = SystemTime::now();
-        cmd_manager
-            .get_async_runtime()
+        let loader_version = Self::get_option_value("loader", tokens)
+            .ok()
+            .or(latest_stable_loader.as_ref())
+            .ok_or("Missing or invalid --loader option")?;
+
+        let installer_version = Self::get_option_value("installer", tokens)
+            .ok()
+            .or(latest_stable_installer.as_ref())
+            .ok_or("Missing or invalid --installer option")?;
+
+        let server_name = Self::get_option_value("name", tokens)
+            .map_err(|e| format!("Missing or invalid --name option: {e}"))?;
+
+        let save_dir_path = format!("instances/{server_name}");
+
+        let start_time = SystemTime::now();
+
+        println!("Downloading server jar...");
+        let filename = cmd_manager
+            .async_runtime
             .block_on(fabric_meta::download_server(
                 game_version,
-                fabric_loader_version,
+                loader_version,
                 installer_version,
+                save_dir_path.clone(),
             ))
-            .map_err(|e| format!("Download executable server (.jar) failed. {}", e))?;
-        let end = SystemTime::now();
-        let duration = end.duration_since(start).unwrap();
-        println!("Download complete. Took {}ms", duration.as_millis());
+            .map_err(|e| format!("Failed to download server jar: {e}"))?;
+
+        let elapsed_time = start_time.elapsed().unwrap();
+        println!(
+            "Download complete. Duration: {}ms",
+            elapsed_time.as_millis()
+        );
+
+        let config = Config::new(&filename);
+        config
+            .save(&server_name)
+            .map_err(|e| format!("Failed to save config: {e}"))?;
+
+        state
+            .update_server_names(cmd_manager)
+            .map_err(|e| format!("Failed to update server names. Error: {e}"))?;
+
+        println!("Server added: {server_name}");
+        Ok(())
+    }
+
+    /// Start the selected server and exit with code 0
+    fn start_server_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> Result<(), String> {
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
+
+        env::set_current_dir(format!("instances/{}", selected_server.name))
+            .map_err(|e| format!("Failed to set current directory: {e}"))?;
+
+        let start_cmd = shlex::split(&selected_server.config.start_command)
+            .ok_or("The start command is invalid")?;
+
+        // Start the server in this terminal
+        println!("Starting server and exiting...");
+        process::Command::new(&start_cmd[0])
+            .args(&start_cmd[1..])
+            .spawn()
+            .map_err(|e| format!("Failed to start server: {e}"))?;
+
+        process::exit(0);
+    }
+
+    fn accept_eula_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> Result<(), String> {
+        let eula_path = format!(
+            "instances/{}/eula.txt",
+            state
+                .selected_server
+                .as_ref()
+                .ok_or("No server selected.")?
+                .name
+        );
+        let content =
+            fs::read_to_string(&eula_path).map_err(|e| format!("Failed to read file: {e}"))?;
+        let new_content = content.replace("eula=false", "eula=true");
+        fs::write(&eula_path, new_content).map_err(|e| format!("Failed to write file: {e}"))?;
+
+        println!(
+            "You ran the accept-eula command. This means you agree to the Minecraft EULA. \
+        multi-server will automatically set 'eula=true' in eula.txt for this server. \
+        Please ensure you have read and understood the EULA at: https://aka.ms/MinecraftEULA"
+        );
 
         Ok(())
     }
 
-    fn exit_handler(_: &CommandManager, _: &mut State, _: &[String]) -> anyhow::Result<(), String> {
+    fn exit_handler(
+        _: &mut CommandManager,
+        _: &mut State,
+        _: &[String],
+    ) -> anyhow::Result<(), String> {
         process::exit(0)
     }
 
-    pub fn execute(&self, line: &str, state: &mut State) -> Result<(), String> {
-        let tokens = shlex::split(line).unwrap();
+    pub fn execute(&mut self, line: &str, state: &mut State) -> Result<(), String> {
+        let tokens = shlex::split(line).ok_or("Failed to parse command".to_string())?;
 
-        if let Some(main_cmd) = self.commands.iter().find(|c| c.name == tokens[0]) {
-            let deepest_sub_cmd = Self::find_deepest_subcommand(&main_cmd.sub_commands, &tokens);
+        let command = self
+            .commands
+            .iter()
+            .find(|cmd| cmd.name == tokens[0])
+            .ok_or(format!("Unknown command: {}", tokens[0]))?;
 
-            match deepest_sub_cmd {
-                Some(deepest_sub_cmd) => match deepest_sub_cmd.handler {
-                    Some(handler) => handler(&self, state, &tokens)?,
-                    None => {
-                        eprintln!(
-                            "Command does not have a handler. May have to provide subcommands."
-                        )
-                    }
-                },
-                None => match main_cmd.handler {
-                    Some(handler) => handler(&self, state, &tokens)?,
-                    None => {
-                        eprintln!(
-                            "Command does not have a handler. May have to provide subcommands."
-                        )
-                    }
-                },
-            }
-        } else {
-            eprintln!("Unknown command: {}", line);
+        let deepest_sub_command = Self::find_deepest_subcommand(&command.sub_commands, &tokens);
+
+        let handler = match deepest_sub_command {
+            Some(subcommand) => subcommand.handler.or(command.handler),
+            None => command.handler,
         }
+        .ok_or("Command does not have a handler.".to_string())?;
 
-        Ok(())
+        handler(self, state, &tokens)
     }
 
     fn suggest_subcommands<'a>(
@@ -464,7 +578,7 @@ impl Completer for CommandManager {
         }
 
         let cmd_name = &tokens[0];
-        let maybe_cmd = self.commands.iter().find(|cmd| cmd.name == cmd_name);
+        let maybe_cmd = self.commands.iter().find(|cmd| &cmd.name == cmd_name);
 
         match maybe_cmd {
             Some(cmd) => {
@@ -472,23 +586,25 @@ impl Completer for CommandManager {
 
                 // Suggest subcommands or options
                 let suggestions = match last_sub_cmd {
+                    // From last subcommand
                     Some(last_sub_cmd) => {
-                        if !last_sub_cmd.sub_commands.is_empty() {
+                        if last_sub_cmd.sub_commands.is_empty() {
+                            Self::suggest_options(&last_sub_cmd.options, &tokens, input)
+                        } else {
                             Self::suggest_subcommands(
                                 &last_sub_cmd.sub_commands,
                                 tokens.last(),
                                 input,
                             )
-                        } else {
-                            Self::suggest_options(&last_sub_cmd.options, &tokens, input)
                         }
                     }
 
+                    // From main command
                     None => {
-                        if !cmd.sub_commands.is_empty() {
-                            Self::suggest_subcommands(&cmd.sub_commands, tokens.last(), input)
-                        } else {
+                        if cmd.sub_commands.is_empty() {
                             Self::suggest_options(&cmd.options, &tokens, input)
+                        } else {
+                            Self::suggest_subcommands(&cmd.sub_commands, tokens.last(), input)
                         }
                     }
                 };
@@ -528,20 +644,20 @@ impl Candidate for SmartCandidate {
     }
 }
 
-pub fn create_editor() -> Result<Editor<CommandManager, FileHistory>, ReadlineError> {
+pub fn create_editor(
+    helper: CommandManager,
+) -> Result<Editor<CommandManager, FileHistory>, ReadlineError> {
     let mut editor = Editor::new()?;
     editor.set_completion_show_all_if_ambiguous(true);
-    editor.set_helper(Some(CommandManager::new()));
+    editor.set_helper(Some(helper));
 
     Ok(editor)
 }
 
 #[cfg(test)]
 mod tests {
-
-    use rustyline::history::History;
-
     use super::*;
+    use rustyline::history::History;
 
     #[test]
     fn test_smart_completer() {
@@ -550,7 +666,7 @@ mod tests {
                 Command {
                     name: "cmd1",
                     sub_commands: vec![SubCommand {
-                        name: "sub1",
+                        name: "sub1".to_string(),
                         sub_commands: vec![],
                         help: "",
                         options: vec![CommandOption {
