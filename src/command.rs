@@ -2,6 +2,7 @@ use std::{
     env,
     error::Error,
     fmt::Display,
+    fs::{self},
     process::{self},
     time::SystemTime,
 };
@@ -177,6 +178,13 @@ impl CommandManager {
                 handler: Some(Self::add_server_handler),
             },
             Command {
+                name: "accept-eula",
+                sub_commands: vec![],
+                options: vec![],
+                help: "Accept the EULA for the selected server. This will modify the eula.txt file.",
+                handler: Some(Self::accept_eula_handler),
+            },
+            Command {
                 name: "start",
                 sub_commands: vec![],
                 options: vec![],
@@ -282,10 +290,12 @@ impl CommandManager {
         state: &mut State,
         _: &[String],
     ) -> Result<(), String> {
-        match state.selected_server.as_ref() {
-            Some(server) => println!("{}", server.name),
-            None => println!("No server is selected."),
-        };
+        let server_name = &state
+            .selected_server
+            .as_ref()
+            .ok_or("No server is selected.".to_string())?
+            .name;
+        println!("{server_name}");
 
         Ok(())
     }
@@ -395,7 +405,6 @@ impl CommandManager {
             .map_err(|e| format!("Failed to update server names. Error: {e}"))?;
 
         println!("Server added: {server_name}");
-
         Ok(())
     }
 
@@ -424,6 +433,33 @@ impl CommandManager {
             .map_err(|e| format!("Failed to start server: {e}"))?;
 
         process::exit(0);
+    }
+
+    fn accept_eula_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> Result<(), String> {
+        let eula_path = format!(
+            "instances/{}/eula.txt",
+            state
+                .selected_server
+                .as_ref()
+                .ok_or("No server selected.")?
+                .name
+        );
+        let content =
+            fs::read_to_string(&eula_path).map_err(|e| format!("Failed to read file: {e}"))?;
+        let new_content = content.replace("eula=false", "eula=true");
+        fs::write(&eula_path, new_content).map_err(|e| format!("Failed to write file: {e}"))?;
+
+        println!(
+            "You ran the accept-eula command. This means you agree to the Minecraft EULA. \
+        multi-server will automatically set 'eula=true' in eula.txt for this server. \
+        Please ensure you have read and understood the EULA at: https://aka.ms/MinecraftEULA"
+        );
+
+        Ok(())
     }
 
     fn exit_handler(
