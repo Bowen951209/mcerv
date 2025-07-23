@@ -199,6 +199,36 @@ impl CommandManager {
                 handler: None,
             },
             Command {
+                name: "update",
+                sub_commands: vec![SubCommand {
+                    name: "server".to_string(),
+                    sub_commands: vec![],
+                    options: vec![
+                        CommandOption {
+                            name: "game",
+                            help: "The Minecraft version.",
+                        },
+                        CommandOption {
+                            name: "loader",
+                            help: "The Fabric Loader version.",
+                        },
+                        CommandOption {
+                            name: "installer",
+                            help: "The Fabric Installer version.",
+                        },
+                        CommandOption {
+                            name: "latest-stable",
+                            help: "Use the latest stable versions for the unspecified.",
+                        },
+                    ],
+                    help: "Update the server executable jar to the specified versions.",
+                    handler: Some(Self::update_server_handler),
+                }],
+                options: vec![],
+                help: "",
+                handler: None,
+            },
+            Command {
                 name: "accept-eula",
                 sub_commands: vec![],
                 options: vec![],
@@ -389,34 +419,6 @@ impl CommandManager {
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let use_latest_stable = tokens.contains(&"--latest-stable".to_string());
-        let (latest_stable_game, latest_stable_loader, latest_stable_installer) =
-            if use_latest_stable {
-                let versions = cmd_manager
-                    .async_runtime
-                    .block_on(fabric_meta::fetch_latest_stable_versions())
-                    .map_err(|e| format!("Failed to fetch latest stable versions: {e}"))?;
-
-                (Some(versions.0), Some(versions.1), Some(versions.2))
-            } else {
-                (None, None, None)
-            };
-
-        let game_version = Self::get_option_value("game", tokens)
-            .ok()
-            .or(latest_stable_game.as_ref())
-            .ok_or("Missing or invalid --game option")?;
-
-        let loader_version = Self::get_option_value("loader", tokens)
-            .ok()
-            .or(latest_stable_loader.as_ref())
-            .ok_or("Missing or invalid --loader option")?;
-
-        let installer_version = Self::get_option_value("installer", tokens)
-            .ok()
-            .or(latest_stable_installer.as_ref())
-            .ok_or("Missing or invalid --installer option")?;
-
         let server_name = Self::get_option_value("name", tokens)
             .map_err(|e| format!("Missing or invalid --name option: {e}"))?;
 
@@ -424,13 +426,19 @@ impl CommandManager {
 
         let start_time = SystemTime::now();
 
+        println!("Fetching versions...");
+        let (game_version, loader_version, installer_version) = cmd_manager
+            .async_runtime
+            .block_on(Self::get_versions(tokens))
+            .map_err(|e| format!("Failed to get versions: {e}"))?;
+
         println!("Downloading server jar...");
         let filename = cmd_manager
             .async_runtime
             .block_on(fabric_meta::download_server(
-                game_version,
-                loader_version,
-                installer_version,
+                &game_version,
+                &loader_version,
+                &installer_version,
                 save_dir_path.clone(),
             ))
             .map_err(|e| format!("Failed to download server jar: {e}"))?;
@@ -445,6 +453,7 @@ impl CommandManager {
         config
             .save(&server_name)
             .map_err(|e| format!("Failed to save config: {e}"))?;
+        println!("Config created and saved");
 
         state
             .update_server_names(cmd_manager)
@@ -483,6 +492,70 @@ impl CommandManager {
             .map_err(|e| format!("Failed to create start script file: {e}"))?;
         file.write_all(content.as_bytes())
             .map_err(|e| format!("Failed to write start script to file: {e}"))?;
+
+        Ok(())
+    }
+
+    fn update_server_handler(
+        cmd_manager: &mut CommandManager,
+        state: &mut State,
+        tokens: &[String],
+    ) -> Result<(), String> {
+        let selected_server = state
+            .selected_server
+            .as_mut()
+            .ok_or("No server selected.")?;
+
+        println!("Updating server jar...");
+
+        let start_time = SystemTime::now();
+
+        println!("Fetching versions...");
+        let (game_version, loader_version, installer_version) = cmd_manager
+            .async_runtime
+            .block_on(Self::get_versions(tokens))
+            .map_err(|e| format!("Failed to get versions: {e}"))?;
+
+        println!("Downloading new server jar...");
+        let file_name = cmd_manager
+            .async_runtime
+            .block_on(fabric_meta::download_server(
+                &game_version,
+                &loader_version,
+                &installer_version,
+                format!("instances/{}", selected_server.name),
+            ))
+            .map_err(|e| format!("Failed to download server jar: {e}"))?;
+
+        println!("Deleting old server jar...");
+        let mut start_command = shlex::split(&selected_server.config.start_command)
+            .ok_or("Failed to split start command")?;
+
+        let jar_name = start_command
+            .iter_mut()
+            .find(|s| s.ends_with(".jar"))
+            .ok_or("No jar file found in start command")?;
+
+        let old_jar_path = format!("instances/{}/{}", selected_server.name, jar_name);
+        fs::remove_file(&old_jar_path)
+            .map_err(|e| format!("Failed to delete old server jar: {e}"))?;
+
+        *jar_name = file_name;
+
+        let start_command = start_command.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+
+        selected_server.config.start_command = shlex::try_join(start_command)
+            .map_err(|_| "Failed to join start command".to_string())?;
+
+        selected_server
+            .config
+            .save(&selected_server.name)
+            .map_err(|e| format!("Failed to save config: {e}"))?;
+
+        println!("Config updated.");
+
+        let elapsed_time = start_time.elapsed().unwrap();
+        println!("Update complete. Duration: {}ms", elapsed_time.as_millis());
 
         Ok(())
     }
@@ -652,6 +725,41 @@ impl CommandManager {
                         }
                     })
             })
+    }
+
+    async fn get_versions<'a>(tokens: &[String]) -> Result<(String, String, String), String> {
+        let use_latest_stable = tokens.contains(&"--latest-stable".to_string());
+        let (latest_stable_game, latest_stable_loader, latest_stable_installer) =
+            if use_latest_stable {
+                let versions = fabric_meta::fetch_latest_stable_versions()
+                    .await
+                    .map_err(|e| format!("Failed to fetch latest stable versions: {e}"))?;
+
+                (Some(versions.0), Some(versions.1), Some(versions.2))
+            } else {
+                (None, None, None)
+            };
+
+        let game_version = Self::get_option_value("game", tokens)
+            .ok()
+            .or(latest_stable_game.as_ref())
+            .ok_or("Missing or invalid --game option")?;
+
+        let loader_version = Self::get_option_value("loader", tokens)
+            .ok()
+            .or(latest_stable_loader.as_ref())
+            .ok_or("Missing or invalid --loader option")?;
+
+        let installer_version = Self::get_option_value("installer", tokens)
+            .ok()
+            .or(latest_stable_installer.as_ref())
+            .ok_or("Missing or invalid --installer option")?;
+
+        Ok((
+            game_version.to_owned(),
+            loader_version.to_owned(),
+            installer_version.to_owned(),
+        ))
     }
 }
 
