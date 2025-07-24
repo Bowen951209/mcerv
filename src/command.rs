@@ -426,12 +426,16 @@ impl CommandManager {
             .ok_or("The start command is invalid")?;
 
         // Start the server in this terminal
-        println!("Starting server and exiting...");
-        process::Command::new(&start_cmd[0])
+        println!("Starting server...");
+        let mut child = process::Command::new(&start_cmd[0])
             .args(&start_cmd[1..])
             .spawn()
             .map_err(|e| format!("Failed to start server: {e}"))?;
 
+        // This wait is necessary. Without this, the cursor in the termminal will have some glitches
+        child.wait().unwrap();
+
+        println!("Exiting multi-server.");
         process::exit(0);
     }
 
