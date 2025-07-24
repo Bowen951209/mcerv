@@ -13,16 +13,24 @@ pub enum ConfigError {
     InvalidXmxNumber,
     InvalidXmsNumber,
 }
+
 impl Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
+
 impl Error for ConfigError {}
+
+pub enum StartScript {
+    Windows(String),
+    Unix(String),
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub start_command: String,
+    pub java_home: Option<String>,
 }
 
 impl Config {
@@ -30,6 +38,7 @@ impl Config {
     pub fn new(jar_file_name: &str) -> Self {
         Self {
             start_command: format!("java -Xmx2G -Xms1G -jar {jar_file_name} nogui"),
+            java_home: None,
         }
     }
 
@@ -46,6 +55,53 @@ impl Config {
         let file = File::create(&path)?;
         serde_json::to_writer_pretty(file, &self)?;
         Ok(())
+    }
+
+    pub fn create_start_script(&self) -> Result<StartScript, ConfigError> {
+        let script = if cfg!(target_os = "windows") {
+            // Windows batch script
+
+            let java_home_script = match &self.java_home {
+                Some(java_home) => format!(
+                    r#"set JAVA_HOME={}
+set PATH=%JAVA_HOME%\bin;%PATH%"#,
+                    java_home
+                ),
+                None => String::new(),
+            };
+
+            StartScript::Windows(format!(
+                r#"@echo off
+{}
+
+echo Using Java: %JAVA_HOME%
+java --version
+{}"#,
+                java_home_script, self.start_command
+            ))
+        } else {
+            // Unix shell script
+            let java_home_script = match &self.java_home {
+                Some(java_home) => format!(
+                    r#"export JAVA_HOME="{}"
+export PATH="$JAVA_HOME/bin:$PATH""#,
+                    java_home
+                ),
+                None => String::new(),
+            };
+
+            StartScript::Unix(format!(
+                r#"#!/usr/bin/env bash
+{}
+
+echo Using Java: %JAVA_HOME%
+java --version
+{}"#,
+                java_home_script, self.start_command
+            ))
+        };
+
+        Ok(script)
     }
 
     pub fn check_validity(&self) -> Result<(), ConfigError> {
@@ -116,6 +172,7 @@ mod tests {
     fn test_set_jar() {
         let mut config = Config {
             start_command: String::from("java -Xmx2G -Xms1G -jar \"some-server.jar\" nogui"),
+            java_home: None,
         };
 
         config
@@ -138,6 +195,7 @@ mod tests {
     fn test_set_max_memory() {
         let mut config = Config {
             start_command: String::from("java -Xmx2G -Xms1G -jar some-server.jar nogui"),
+            java_home: None,
         };
 
         config.set_max_memory("3G").unwrap();
@@ -152,6 +210,7 @@ mod tests {
     fn test_set_min_memory() {
         let mut config = Config {
             start_command: String::from("java -Xmx2G -Xms1G -jar some-server.jar nogui"),
+            java_home: None,
         };
 
         config.set_min_memory("3G").unwrap();
@@ -167,33 +226,39 @@ mod tests {
         // invalid jar number
         let config = Config {
             start_command: String::from("java -Xmx2G -Xms1G -jar some-server.jar two.jar nogui"),
+            java_home: None,
         };
         assert!(config.check_start_command().is_err());
 
         let config = Config {
             start_command: String::from("java -Xmx2G -Xms1G -jar nogui"),
+            java_home: None,
         };
         assert!(config.check_start_command().is_err());
 
         // invalid Xmx number
         let config = Config {
             start_command: String::from("java -Xmx2G -Xms1G -jar some-server.jar nogui -Xmx1G"),
+            java_home: None,
         };
         assert!(config.check_start_command().is_err());
 
         let config = Config {
             start_command: String::from("java -Xms1G -jar some-server.jar nogui"),
+            java_home: None,
         };
         assert!(config.check_start_command().is_err());
 
         // invalid Xms number
         let config = Config {
             start_command: String::from("java -Xmx2G -Xms1G -jar some-server.jar nogui -Xms1G"),
+            java_home: None,
         };
         assert!(config.check_start_command().is_err());
 
         let config = Config {
             start_command: String::from("java -Xmx2G -jar some-server.jar nogui"),
+            java_home: None,
         };
         assert!(config.check_start_command().is_err());
     }
