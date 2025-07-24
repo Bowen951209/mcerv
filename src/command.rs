@@ -3,6 +3,7 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self},
+    io::Write,
     process::{self},
     time::SystemTime,
 };
@@ -19,7 +20,7 @@ use rustyline::{
 };
 
 use crate::{
-    config::Config,
+    config::{Config, StartScript},
     fabric_meta::{self, PrintVersionMode},
     state::State,
 };
@@ -144,6 +145,13 @@ impl CommandManager {
                         options: vec![],
                         handler: Some(Self::set_min_memory_handler),
                     },
+                    SubCommand {
+                        name: "java".to_string(),
+                        sub_commands: vec![],
+                        help: "Set the JAVA_HOME for the server. This will change the start command to use the specified Java.",
+                        options: vec![],
+                        handler: Some(Self::set_java_home_handler),
+                    },
                 ],
                 options: vec![],
                 help: "",
@@ -176,6 +184,19 @@ impl CommandManager {
                 ],
                 help: "Download the selected versions for the server.",
                 handler: Some(Self::add_server_handler),
+            },
+            Command {
+                name: "generate",
+                sub_commands: vec![SubCommand {
+                    name: "start-script".to_string(),
+                    sub_commands: vec![],
+                    help: "Generate a start script for the selected server.",
+                    options: vec![],
+                    handler: Some(Self::generate_start_script_handler),
+                }],
+                options: vec![],
+                help: "",
+                handler: None,
             },
             Command {
                 name: "accept-eula",
@@ -338,6 +359,31 @@ impl CommandManager {
             .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
+    fn set_java_home_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        tokens: &[String],
+    ) -> Result<(), String> {
+        let java_home = tokens.get(2).ok_or("No JAVA_HOME provided.")?;
+
+        // Check if the path exists
+        if !fs::metadata(java_home).is_ok() {
+            return Err(format!("The path {java_home} does not exist."));
+        }
+
+        let selected_server = state
+            .selected_server
+            .as_mut()
+            .ok_or("No server selected.")?;
+
+        selected_server.config.java_home = Some(java_home.to_string());
+
+        selected_server
+            .config
+            .save(&selected_server.name)
+            .map_err(|e| format!("Failed to save config. Error: {e}"))
+    }
+
     fn add_server_handler(
         cmd_manager: &mut CommandManager,
         state: &mut State,
@@ -408,6 +454,39 @@ impl CommandManager {
         Ok(())
     }
 
+    fn generate_start_script_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> Result<(), String> {
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
+
+        let start_script = selected_server
+            .config
+            .create_start_script()
+            .map_err(|e| format!("Failed to create start script: {e}"))?;
+
+        // Write the start script to a file
+        let (content, extension) = match start_script {
+            StartScript::Windows(script) => (script, "bat"),
+            StartScript::Unix(script) => (script, "sh"),
+        };
+
+        let script_path = format!(
+            "instances/{}/start_script.{}",
+            selected_server.name, extension
+        );
+        let mut file = fs::File::create(&script_path)
+            .map_err(|e| format!("Failed to create start script file: {e}"))?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| format!("Failed to write start script to file: {e}"))?;
+
+        Ok(())
+    }
+
     /// Start the selected server and exit with code 0
     fn start_server_handler(
         _: &mut CommandManager,
@@ -419,6 +498,8 @@ impl CommandManager {
             .as_ref()
             .ok_or("No server selected.")?;
 
+        // Set the current directory to the server's instance directory,
+        // or else the server will generate files in the wrong place
         env::set_current_dir(format!("instances/{}", selected_server.name))
             .map_err(|e| format!("Failed to set current directory: {e}"))?;
 
@@ -427,8 +508,24 @@ impl CommandManager {
 
         // Start the server in this terminal
         println!("Starting server...");
-        let mut child = process::Command::new(&start_cmd[0])
-            .args(&start_cmd[1..])
+
+        let mut child_command = process::Command::new(&start_cmd[0]);
+        child_command.args(&start_cmd[1..]);
+
+        if let Some(java_home) = &selected_server.config.java_home {
+            println!("Using JAVA_HOME: {java_home}");
+            let default_path = env::var("PATH").expect("Every system should have a PATH variable");
+            let new_path = if cfg!(target_os = "windows") {
+                format!("{java_home}\\bin;{default_path}")
+            } else {
+                format!("{java_home}/bin:{default_path}")
+            };
+            child_command.env("PATH", new_path);
+        } else {
+            println!("Using system default Java");
+        }
+
+        let mut child = child_command
             .spawn()
             .map_err(|e| format!("Failed to start server: {e}"))?;
 
