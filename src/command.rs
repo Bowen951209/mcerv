@@ -511,12 +511,14 @@ impl CommandManager {
         let start_time = SystemTime::now();
 
         println!("Fetching versions...");
+
         let (game_version, loader_version, installer_version) = cmd_manager
             .async_runtime
             .block_on(Self::get_versions(tokens))
             .map_err(|e| format!("Failed to get versions: {e}"))?;
 
         println!("Downloading new server jar...");
+
         let file_name = cmd_manager
             .async_runtime
             .block_on(fabric_meta::download_server(
@@ -528,31 +530,22 @@ impl CommandManager {
             .map_err(|e| format!("Failed to download server jar: {e}"))?;
 
         println!("Deleting old server jar...");
-        let mut start_command = shlex::split(&selected_server.config.start_command)
-            .ok_or("Failed to split start command")?;
 
-        let jar_name = start_command
-            .iter_mut()
-            .find(|s| s.ends_with(".jar"))
-            .ok_or("No jar file found in start command")?;
-
-        let old_jar_path = format!("instances/{}/{}", selected_server.name, jar_name);
+        let old_jar_name = selected_server.config.get_jar_name();
+        let old_jar_path = format!("instances/{}/{}", selected_server.name, old_jar_name);
         fs::remove_file(&old_jar_path)
             .map_err(|e| format!("Failed to delete old server jar: {e}"))?;
 
-        *jar_name = file_name;
-
-        let start_command = start_command.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-
-        selected_server.config.start_command = shlex::try_join(start_command)
-            .map_err(|_| "Failed to join start command".to_string())?;
+        println!("Updating config...");
+        selected_server
+            .config
+            .set_jar(file_name)
+            .map_err(|e| format!("Failed to set new jar in config: {e}."))?;
 
         selected_server
             .config
             .save(&selected_server.name)
             .map_err(|e| format!("Failed to save config: {e}"))?;
-
-        println!("Config updated.");
 
         let elapsed_time = start_time.elapsed().unwrap();
         println!("Update complete. Duration: {}ms", elapsed_time.as_millis());

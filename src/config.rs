@@ -126,12 +126,17 @@ java --version
         Ok(())
     }
 
-    #[allow(dead_code)] // TODO: use it when updating server or something
-    pub fn set_jar(&mut self, path: &str) -> Result<(), QuoteError> {
+    pub fn get_jar_name(&self) -> String {
+        // Find the .jar in start_command and return it
+        let tokens = shlex::split(&self.start_command).unwrap();
+        tokens.iter().find(|t| t.contains(".jar")).unwrap().clone()
+    }
+
+    pub fn set_jar(&mut self, jar_name: String) -> Result<(), QuoteError> {
         // Find the .jar in start_command and replace it
         let mut tokens = shlex::split(&self.start_command).unwrap();
         let found_jar = tokens.iter_mut().find(|t| t.contains(".jar")).unwrap();
-        *found_jar = path.to_string();
+        *found_jar = jar_name;
 
         let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
         self.start_command = shlex::try_join(str_tokens)?;
@@ -176,7 +181,7 @@ mod tests {
         };
 
         config
-            .set_jar("a server with spaces in the name.jar")
+            .set_jar("a server with spaces in the name.jar".to_string())
             .unwrap();
 
         assert_eq!(
@@ -184,7 +189,7 @@ mod tests {
             String::from("java -Xmx2G -Xms1G -jar 'a server with spaces in the name.jar' nogui")
         );
 
-        config.set_jar("nospaces.jar").unwrap();
+        config.set_jar("nospaces.jar".to_string()).unwrap();
         assert_eq!(
             config.start_command,
             String::from("java -Xmx2G -Xms1G -jar nospaces.jar nogui")
