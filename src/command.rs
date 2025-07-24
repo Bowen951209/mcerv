@@ -362,7 +362,11 @@ impl CommandManager {
             .as_mut()
             .ok_or("No server selected.")?;
 
-        selected_server.config.set_max_memory(max_memory).unwrap();
+        selected_server
+            .config
+            .start_command
+            .set_max_memory(max_memory)
+            .unwrap();
 
         selected_server
             .config
@@ -381,7 +385,11 @@ impl CommandManager {
             .as_mut()
             .ok_or("No server selected.")?;
 
-        selected_server.config.set_min_memory(min_memory).unwrap();
+        selected_server
+            .config
+            .start_command
+            .set_min_memory(min_memory)
+            .unwrap();
 
         selected_server
             .config
@@ -531,7 +539,7 @@ impl CommandManager {
 
         println!("Deleting old server jar...");
 
-        let old_jar_name = selected_server.config.get_jar_name();
+        let old_jar_name = selected_server.config.start_command.get_jar_name();
         let old_jar_path = format!("instances/{}/{}", selected_server.name, old_jar_name);
         fs::remove_file(&old_jar_path)
             .map_err(|e| format!("Failed to delete old server jar: {e}"))?;
@@ -539,6 +547,7 @@ impl CommandManager {
         println!("Updating config...");
         selected_server
             .config
+            .start_command
             .set_jar(file_name)
             .map_err(|e| format!("Failed to set new jar in config: {e}."))?;
 
@@ -569,8 +578,7 @@ impl CommandManager {
         env::set_current_dir(format!("instances/{}", selected_server.name))
             .map_err(|e| format!("Failed to set current directory: {e}"))?;
 
-        let start_cmd = shlex::split(&selected_server.config.start_command)
-            .ok_or("The start command is invalid")?;
+        let start_cmd = selected_server.config.start_command.split();
 
         // Start the server in this terminal
         println!("Starting server...");
