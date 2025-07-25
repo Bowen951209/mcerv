@@ -22,6 +22,7 @@ use rustyline::{
 use crate::{
     config::{Config, StartScript},
     fabric_meta::{self, PrintVersionMode},
+    modrinth,
     state::State,
 };
 
@@ -113,6 +114,26 @@ impl CommandManager {
                 options: vec![],
                 help: "",
                 handler: None,
+            },
+            Command {
+                name: "search",
+                sub_commands: vec![/*Subcommands are the queries*/],
+                options: vec![
+                    CommandOption {
+                        name: "facets",
+                        help: "The search facets. For example, '[\"categories:fabric\", [\"versions:1.17.1\"]]'.",
+                    },
+                    CommandOption {
+                        name: "index",
+                        help: "The index to sort by, e.g., 'downloads'.",
+                    },
+                    CommandOption {
+                        name: "limit",
+                        help: "The maximum number of results to return.",
+                    },
+                ],
+                help: "Search for mods on Modrinth.",
+                handler: Some(Self::search_handler),
             },
             Command {
                 name: "select",
@@ -316,6 +337,50 @@ impl CommandManager {
         for server_name in &state.server_names {
             println!("{server_name}");
         }
+
+        Ok(())
+    }
+
+    fn search_handler(
+        cmd_manager: &mut CommandManager,
+        _: &mut State,
+        tokens: &[String],
+    ) -> Result<(), String> {
+        let query = match tokens.get(1) {
+            Some(q) if !q.starts_with("-") => q,
+            _ => return Err("No query provided.".to_string()),
+        };
+
+        let facets = match Self::get_option_value("facets", tokens) {
+            Ok(f) => Some(f.as_str()),
+            Err(OptionError::InvalidOption) => None,
+            Err(OptionError::MissingValue) => {
+                return Err("Missing --facets option value.".to_string());
+            }
+        };
+
+        let index = match Self::get_option_value("index", tokens) {
+            Ok(i) => Some(i.as_str()),
+            Err(OptionError::InvalidOption) => None,
+            Err(OptionError::MissingValue) => {
+                return Err("Missing --index option value.".to_string());
+            }
+        };
+
+        let limit = match Self::get_option_value("limit", tokens) {
+            Ok(l) => Some(l.as_str()),
+            Err(OptionError::InvalidOption) => None,
+            Err(OptionError::MissingValue) => {
+                return Err("Missing --limit option value.".to_string());
+            }
+        };
+
+        let response = cmd_manager
+            .async_runtime
+            .block_on(modrinth::search(query, facets, index, limit))
+            .map_err(|e| format!("Search failed: {e}"))?;
+
+        response.print_table();
 
         Ok(())
     }

@@ -1,6 +1,7 @@
 mod command;
 mod config;
 mod fabric_meta;
+mod modrinth;
 mod state;
 
 use crate::{command::CommandManager, config::Config, state::State};
