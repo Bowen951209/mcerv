@@ -20,12 +20,14 @@ use rustyline::{
 };
 
 use crate::{
-    config::{Config, StartScript},
     network::{
         fabric_meta::{self, PrintVersionMode},
         modrinth,
     },
-    state::State,
+    system::{
+        config::{Config, StartScript},
+        state::State,
+    },
 };
 
 type Handler = fn(&mut CommandManager, &mut State, &[String]) -> Result<(), String>;

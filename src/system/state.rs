@@ -1,8 +1,8 @@
 use std::{error::Error, fmt::Display, fs, path::Path};
 
 use crate::{
-    Config,
     command::{CommandManager, SubCommand},
+    system::config::Config,
 };
 
 #[derive(Debug, Clone, Copy)]

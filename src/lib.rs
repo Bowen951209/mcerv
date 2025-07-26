@@ -1,11 +1,13 @@
-mod command;
-mod config;
 mod network;
-mod state;
+mod system;
 
-use crate::{command::CommandManager, config::Config, state::State};
 use rustyline::error::ReadlineError;
 use std::fs;
+
+use crate::system::{
+    command::{self, CommandManager},
+    state::State,
+};
 
 pub fn run() -> anyhow::Result<()> {
     // Create instances directory if it doesn't exist
