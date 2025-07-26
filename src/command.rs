@@ -21,8 +21,10 @@ use rustyline::{
 
 use crate::{
     config::{Config, StartScript},
-    fabric_meta::{self, PrintVersionMode},
-    modrinth,
+    network::{
+        fabric_meta::{self, PrintVersionMode},
+        modrinth,
+    },
     state::State,
 };
 
