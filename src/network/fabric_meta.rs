@@ -1,39 +1,10 @@
-use std::{
-    fs::{File, create_dir_all},
-    io::copy,
-    path::Path,
-};
+use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use prettytable::{Table, row};
-use reqwest::{Client, StatusCode};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 
-#[derive(Deserialize)]
-#[allow(unused)]
-pub struct MinecraftVersion {
-    version: String,
-    stable: bool,
-}
-
-#[derive(Deserialize)]
-#[allow(unused)]
-pub struct FabricLoaderVersion {
-    separator: String,
-    build: i32,
-    maven: String,
-    version: String,
-    stable: bool,
-}
-
-#[derive(Deserialize)]
-#[allow(unused)]
-pub struct FabricInstallerVersion {
-    url: String,
-    maven: String,
-    version: String,
-    stable: bool,
-}
+use crate::network::download_file;
 
 #[derive(Copy, Clone)]
 pub enum PrintVersionMode {
@@ -42,6 +13,7 @@ pub enum PrintVersionMode {
 }
 
 pub async fn download_server(
+    client: &reqwest::Client,
     game_version: &str,
     fabric_loader_version: &str,
     installer_version: &str,
@@ -52,30 +24,17 @@ pub async fn download_server(
         game_version, fabric_loader_version, installer_version
     );
 
-    let client = Client::new();
-
-    let response = client.get(&url).send().await?;
-
-    if response.status() != StatusCode::OK {
-        return Err(anyhow!(
-            "Failed to fetch server jar. Probably invalid versions."
-        ));
-    }
-
     let filename = format!(
         "fabric-server-mc.{}-loader.{}-launcher.{}.jar",
         game_version, fabric_loader_version, installer_version
     );
 
-    create_dir_all(save_dir_path.as_ref())?;
-    let mut out_file = File::create(&save_dir_path.as_ref().join(&filename))?;
-    let content = response.bytes().await?;
-    copy(&mut content.as_ref(), &mut out_file)?;
+    download_file(client, &url, save_dir_path.as_ref().join(&filename)).await?;
 
     Ok(filename)
 }
 
-pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {
+pub async fn print_versions(client: &reqwest::Client, print_mode: PrintVersionMode) -> Result<()> {
     let mut table = Table::new();
 
     table.add_row(row![
@@ -84,26 +43,12 @@ pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {
         "Installer Version"
     ]);
 
-    let (minecraft_versions, fabric_loader_versions, installer_versions) = tokio::try_join!(
-        fetch_json::<Vec<MinecraftVersion>>("https://meta.fabricmc.net/v2/versions/game"),
-        fetch_json::<Vec<FabricLoaderVersion>>("https://meta.fabricmc.net/v2/versions/loader"),
-        fetch_json::<Vec<FabricInstallerVersion>>(
-            "https://meta.fabricmc.net/v2/versions/installer"
-        ),
-    )?;
+    let (minecraft_versions, fabric_loader_versions, installer_versions) =
+        get_versions(client).await?;
 
-    let minecraft_versions =
-        filter_and_format(minecraft_versions, print_mode, |v| &v.version, |v| v.stable);
-
-    let loader_versions = filter_and_format(
-        fabric_loader_versions,
-        print_mode,
-        |v| &v.version,
-        |v| v.stable,
-    );
-
-    let installer_versions =
-        filter_and_format(installer_versions, print_mode, |v| &v.version, |v| v.stable);
+    let minecraft_versions = filter_and_format(minecraft_versions, print_mode);
+    let loader_versions = filter_and_format(fabric_loader_versions, print_mode);
+    let installer_versions = filter_and_format(installer_versions, print_mode);
 
     let length = minecraft_versions
         .len()
@@ -122,36 +67,47 @@ pub async fn print_versions(print_mode: PrintVersionMode) -> Result<()> {
     Ok(())
 }
 
-pub async fn fetch_latest_stable_versions() -> Result<(String, String, String)> {
-    let (minecraft_versions, fabric_loader_versions, installer_versions) = tokio::try_join!(
-        fetch_json::<Vec<MinecraftVersion>>("https://meta.fabricmc.net/v2/versions/game"),
-        fetch_json::<Vec<FabricLoaderVersion>>("https://meta.fabricmc.net/v2/versions/loader"),
-        fetch_json::<Vec<FabricInstallerVersion>>(
-            "https://meta.fabricmc.net/v2/versions/installer"
-        ),
-    )?;
+pub async fn fetch_latest_stable_versions(
+    client: &reqwest::Client,
+) -> Result<(String, String, String)> {
+    let (minecraft_versions, fabric_loader_versions, installer_versions) =
+        get_versions(client).await?;
 
-    let minecraft_version = minecraft_versions
+    let minecraft_version = &minecraft_versions
         .into_iter()
-        .find(|v| v.stable)
-        .ok_or(anyhow!("Failed to find stable minecraft version"))?
-        .version;
-    let fabric_loader_version = fabric_loader_versions
+        .find(|v| v["stable"].as_bool().unwrap())
+        .ok_or(anyhow!("Failed to find stable minecraft version"))?["version"];
+    let fabric_loader_version = &fabric_loader_versions
         .into_iter()
-        .find(|v| v.stable)
-        .ok_or(anyhow!("Failed to find stable fabric loader version"))?
-        .version;
-    let installer_version = installer_versions
+        .find(|v| v["stable"].as_bool().unwrap())
+        .ok_or(anyhow!("Failed to find stable fabric loader version"))?["version"];
+    let installer_version = &installer_versions
         .into_iter()
-        .find(|v| v.stable)
-        .ok_or(anyhow!("Failed to find stable fabric installer version"))?
-        .version;
+        .find(|v| v["stable"].as_bool().unwrap())
+        .ok_or(anyhow!("Failed to find stable fabric installer version"))?["version"];
 
-    Ok((minecraft_version, fabric_loader_version, installer_version))
+    Ok((
+        minecraft_version.to_string(),
+        fabric_loader_version.to_string(),
+        installer_version.to_string(),
+    ))
 }
 
-async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T> {
-    let client = Client::new();
+async fn get_versions(
+    client: &reqwest::Client,
+) -> Result<(
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+)> {
+    tokio::try_join!(
+        fetch_json(client, "https://meta.fabricmc.net/v2/versions/game"),
+        fetch_json(client, "https://meta.fabricmc.net/v2/versions/loader"),
+        fetch_json(client, "https://meta.fabricmc.net/v2/versions/installer"),
+    )
+}
+
+async fn fetch_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> Result<T> {
     let response = client.get(url).send().await?;
 
     if !response.status().is_success() {
@@ -163,24 +119,59 @@ async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T> {
     Ok(result)
 }
 
-fn filter_and_format<T>(
-    versions: Vec<T>,
+fn filter_and_format(
+    versions: Vec<serde_json::Value>,
     print_mode: PrintVersionMode,
-    get_version: impl Fn(&T) -> &str,
-    is_stable: impl Fn(&T) -> bool,
 ) -> Vec<String> {
     versions
         .into_iter()
         .filter(|v| match print_mode {
             PrintVersionMode::All => true,
-            PrintVersionMode::StableOnly => is_stable(v),
+            PrintVersionMode::StableOnly => v["stable"].as_bool().unwrap(),
         })
         .map(|v| {
             format!(
                 "{} ({})",
-                get_version(&v),
-                if is_stable(&v) { "stable" } else { "unstable" }
+                v["version"],
+                if v["stable"].as_bool().unwrap() {
+                    "stable"
+                } else {
+                    "unstable"
+                }
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_fetch_latest_stable_versions() {
+        let client = reqwest::Client::new();
+        let versions = fetch_latest_stable_versions(&client).await;
+
+        assert!(versions.is_ok());
+
+        let (game, loader, installer) = versions.unwrap();
+
+        assert!(!game.is_empty());
+        assert!(!loader.is_empty());
+        assert!(!installer.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_versions() {
+        let client = reqwest::Client::new();
+        let versions = get_versions(&client).await;
+
+        assert!(versions.is_ok());
+
+        let (minecraft_versions, fabric_loader_versions, installer_versions) = versions.unwrap();
+
+        assert!(!minecraft_versions.is_empty());
+        assert!(!fabric_loader_versions.is_empty());
+        assert!(!installer_versions.is_empty());
+    }
 }

@@ -76,6 +76,7 @@ pub struct CommandOption {
 pub struct CommandManager {
     pub commands: Vec<Command>,
     pub async_runtime: tokio::runtime::Runtime,
+    pub reqwest_client: reqwest::Client,
 }
 
 impl CommandManager {
@@ -83,6 +84,7 @@ impl CommandManager {
         CommandManager {
             commands: Self::create_commands(),
             async_runtime: tokio::runtime::Runtime::new().unwrap(),
+            reqwest_client: reqwest::Client::new(),
         }
     }
 
@@ -90,11 +92,23 @@ impl CommandManager {
         vec![
             Command {
                 name: "list",
+                sub_commands: vec![SubCommand {
+                    name: "servers".to_string(),
+                    sub_commands: vec![],
+                    help: "List the servers in the config file.",
+                    options: vec![],
+                    handler: Some(Self::list_servers_handler),
+                }],
+                options: vec![],
+                help: "",
+                handler: None,
+            },
+            Command {
+                name: "search",
                 sub_commands: vec![
                     SubCommand {
-                        name: "versions".to_string(),
+                        name: "server-versions".to_string(),
                         sub_commands: vec![],
-                        help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
                         options: vec![
                             CommandOption {
                                 name: "all",
@@ -105,39 +119,53 @@ impl CommandManager {
                                 help: "List only stable versions.",
                             },
                         ],
-                        handler: Some(Self::list_versions_handler),
+                        help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
+                        handler: Some(Self::search_server_versions_handler),
                     },
                     SubCommand {
-                        name: "servers".to_string(),
-                        sub_commands: vec![],
-                        help: "List the servers in the config file.",
-                        options: vec![],
-                        handler: Some(Self::list_servers_handler),
+                        name: "mods".to_string(),
+                        sub_commands: vec![/*Subcommand is the query*/],
+                        options: vec![
+                            CommandOption {
+                                name: "facets",
+                                help: "The search facets. For example, '[\"categories:fabric\", [\"versions:1.17.1\"]]'.",
+                            },
+                            CommandOption {
+                                name: "index",
+                                help: "The index to sort by, e.g., 'downloads'.",
+                            },
+                            CommandOption {
+                                name: "limit",
+                                help: "The maximum number of results to return.",
+                            },
+                        ],
+                        help: "Search for mods on Modrinth.",
+                        handler: Some(Self::search_mods_handler),
+                    },
+                    SubCommand {
+                        name: "mod-versions".to_string(),
+                        sub_commands: vec![/*Subcommand is the project slug*/],
+                        options: vec![
+                            CommandOption {
+                                name: "loaders",
+                                help: "The loaders to filter by, e.g., '[\"fabric\", \"quilt\"]'.",
+                            },
+                            CommandOption {
+                                name: "game-versions",
+                                help: "The game versions to filter by, e.g., '[\"1.17.1\"]'.",
+                            },
+                            CommandOption {
+                                name: "featured",
+                                help: "Allows to filter for featured or non-featured versions only.",
+                            },
+                        ],
+                        help: "Get versions of a mod from Modrinth.",
+                        handler: Some(Self::search_mod_versions_handler),
                     },
                 ],
                 options: vec![],
                 help: "",
                 handler: None,
-            },
-            Command {
-                name: "search",
-                sub_commands: vec![/*Subcommands are the queries*/],
-                options: vec![
-                    CommandOption {
-                        name: "facets",
-                        help: "The search facets. For example, '[\"categories:fabric\", [\"versions:1.17.1\"]]'.",
-                    },
-                    CommandOption {
-                        name: "index",
-                        help: "The index to sort by, e.g., 'downloads'.",
-                    },
-                    CommandOption {
-                        name: "limit",
-                        help: "The maximum number of results to return.",
-                    },
-                ],
-                help: "Search for mods on Modrinth.",
-                handler: Some(Self::search_handler),
             },
             Command {
                 name: "select",
@@ -184,31 +212,42 @@ impl CommandManager {
             },
             Command {
                 name: "add",
-                sub_commands: vec![],
-                options: vec![
-                    CommandOption {
-                        name: "game",
-                        help: "The Minecraft version.",
+                sub_commands: vec![
+                    SubCommand {
+                        name: "server".to_string(),
+                        sub_commands: vec![/*Subcommand is the name of the server to create */],
+                        options: vec![
+                            CommandOption {
+                                name: "game",
+                                help: "The Minecraft version.",
+                            },
+                            CommandOption {
+                                name: "loader",
+                                help: "The Fabric Loader version.",
+                            },
+                            CommandOption {
+                                name: "installer",
+                                help: "The Fabric Installer version.",
+                            },
+                            CommandOption {
+                                name: "latest-stable",
+                                help: "Use the latest stable versions for the unspecified.",
+                            },
+                        ],
+                        help: "Download the selected versions for the server.",
+                        handler: Some(Self::add_server_handler),
                     },
-                    CommandOption {
-                        name: "loader",
-                        help: "The Fabric Loader version.",
-                    },
-                    CommandOption {
-                        name: "installer",
-                        help: "The Fabric Installer version.",
-                    },
-                    CommandOption {
-                        name: "name",
-                        help: "The name of the server folder to create.",
-                    },
-                    CommandOption {
-                        name: "latest-stable",
-                        help: "Use the latest stable versions for the unspecified.",
+                    SubCommand {
+                        name: "mod".to_string(),
+                        sub_commands: vec![/*Subcommand is the mod version ID*/],
+                        options: vec![],
+                        help: "Download a mod version from Modrinth.",
+                        handler: Some(Self::add_mod_handler),
                     },
                 ],
-                help: "Download the selected versions for the server.",
-                handler: Some(Self::add_server_handler),
+                options: vec![],
+                help: "",
+                handler: None,
             },
             Command {
                 name: "generate",
@@ -296,7 +335,24 @@ impl CommandManager {
         Some(current)
     }
 
-    fn list_versions_handler(
+    fn list_servers_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> anyhow::Result<(), String> {
+        if state.server_names.is_empty() {
+            println!("Server list is empty.");
+            return Ok(());
+        }
+
+        for server_name in &state.server_names {
+            println!("{server_name}");
+        }
+
+        Ok(())
+    }
+
+    fn search_server_versions_handler(
         cmd_manager: &mut CommandManager,
         _: &mut State,
         tokens: &[String],
@@ -317,7 +373,10 @@ impl CommandManager {
 
         cmd_manager
             .async_runtime
-            .block_on(fabric_meta::print_versions(mode))
+            .block_on(fabric_meta::print_versions(
+                &cmd_manager.reqwest_client,
+                mode,
+            ))
             .map_err(|e| format!("print versions failed. {}", e))?;
 
         let end = SystemTime::now();
@@ -328,29 +387,12 @@ impl CommandManager {
         Ok(())
     }
 
-    fn list_servers_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        _: &[String],
-    ) -> anyhow::Result<(), String> {
-        if state.server_names.is_empty() {
-            println!("Server list is empty.");
-            return Ok(());
-        }
-
-        for server_name in &state.server_names {
-            println!("{server_name}");
-        }
-
-        Ok(())
-    }
-
-    fn search_handler(
+    fn search_mods_handler(
         cmd_manager: &mut CommandManager,
         _: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let query = match tokens.get(1) {
+        let query = match tokens.get(2) {
             Some(q) if !q.starts_with("-") => q,
             _ => return Err("No query provided.".to_string()),
         };
@@ -381,11 +423,68 @@ impl CommandManager {
 
         let response = cmd_manager
             .async_runtime
-            .block_on(modrinth::search(query, facets, index, limit))
+            .block_on(modrinth::search(
+                &cmd_manager.reqwest_client,
+                query,
+                facets,
+                index,
+                limit,
+            ))
             .map_err(|e| format!("Search failed: {e}"))?;
 
-        response.print_table();
+        println!("{}", response);
 
+        Ok(())
+    }
+
+    fn search_mod_versions_handler(
+        cmd_manager: &mut CommandManager,
+        _: &mut State,
+        tokens: &[String],
+    ) -> Result<(), String> {
+        let project_slug = match tokens.get(2) {
+            Some(s) if !s.starts_with("-") => s,
+            _ => return Err("No project slug provided.".to_string()),
+        };
+
+        let loaders = match Self::get_option_value("loaders", tokens) {
+            Ok(l) => Some(l.as_str()),
+            Err(OptionError::InvalidOption) => None,
+            Err(OptionError::MissingValue) => {
+                return Err("Missing --loaders option value.".to_string());
+            }
+        };
+
+        let game_versions = match Self::get_option_value("game-versions", tokens) {
+            Ok(gv) => Some(gv.as_str()),
+            Err(OptionError::InvalidOption) => None,
+            Err(OptionError::MissingValue) => {
+                return Err("Missing --game-versions option value.".to_string());
+            }
+        };
+
+        let featured = match Self::get_option_value("featured", tokens) {
+            Ok(f) if f == "true" => Some(true),
+            Ok(f) if f == "false" => Some(false),
+            Ok(_) => return Err("Invalid value for --featured option.".to_string()),
+            Err(OptionError::InvalidOption) => None,
+            Err(OptionError::MissingValue) => {
+                return Err("Missing --featured option value.".to_string());
+            }
+        };
+
+        let response = cmd_manager
+            .async_runtime
+            .block_on(modrinth::get_project_versions(
+                &cmd_manager.reqwest_client,
+                project_slug,
+                loaders,
+                game_versions,
+                featured,
+            ))
+            .map_err(|e| format!("Failed to get project versions: {e}"))?;
+
+        println!("{}", response);
         Ok(())
     }
 
@@ -496,8 +595,10 @@ impl CommandManager {
         state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
-        let server_name = Self::get_option_value("name", tokens)
-            .map_err(|e| format!("Missing or invalid --name option: {e}"))?;
+        let server_name = match tokens.get(2) {
+            Some(s) if !s.starts_with("-") => s,
+            _ => return Err("No server name provided.".to_string()),
+        };
 
         let save_dir_path = format!("instances/{server_name}");
 
@@ -506,13 +607,14 @@ impl CommandManager {
         println!("Fetching versions...");
         let (game_version, loader_version, installer_version) = cmd_manager
             .async_runtime
-            .block_on(Self::get_versions(tokens))
+            .block_on(Self::get_versions(&cmd_manager.reqwest_client, tokens))
             .map_err(|e| format!("Failed to get versions: {e}"))?;
 
         println!("Downloading server jar...");
         let filename = cmd_manager
             .async_runtime
             .block_on(fabric_meta::download_server(
+                &cmd_manager.reqwest_client,
                 &game_version,
                 &loader_version,
                 &installer_version,
@@ -537,6 +639,36 @@ impl CommandManager {
             .map_err(|e| format!("Failed to update server names. Error: {e}"))?;
 
         println!("Server added: {server_name}");
+        Ok(())
+    }
+
+    fn add_mod_handler(
+        cmd_manager: &mut CommandManager,
+        state: &mut State,
+        tokens: &[String],
+    ) -> Result<(), String> {
+        let version_id = match tokens.get(2) {
+            Some(id) if !id.starts_with("-") => id,
+            _ => return Err("No mod version ID provided.".to_string()),
+        };
+
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
+
+        println!("Downloading mod version {version_id}...");
+
+        let file_name = cmd_manager
+            .async_runtime
+            .block_on(modrinth::download_version(
+                &cmd_manager.reqwest_client,
+                version_id,
+                format!("instances/{}/mods", selected_server.name),
+            ))
+            .map_err(|e| format!("Failed to download mod version: {e}"))?;
+
+        println!("Mod version downloaded: {file_name}");
         Ok(())
     }
 
@@ -591,7 +723,7 @@ impl CommandManager {
 
         let (game_version, loader_version, installer_version) = cmd_manager
             .async_runtime
-            .block_on(Self::get_versions(tokens))
+            .block_on(Self::get_versions(&cmd_manager.reqwest_client, tokens))
             .map_err(|e| format!("Failed to get versions: {e}"))?;
 
         println!("Downloading new server jar...");
@@ -599,6 +731,7 @@ impl CommandManager {
         let file_name = cmd_manager
             .async_runtime
             .block_on(fabric_meta::download_server(
+                &cmd_manager.reqwest_client,
                 &game_version,
                 &loader_version,
                 &installer_version,
@@ -797,11 +930,14 @@ impl CommandManager {
             })
     }
 
-    async fn get_versions<'a>(tokens: &[String]) -> Result<(String, String, String), String> {
+    async fn get_versions<'a>(
+        client: &reqwest::Client,
+        tokens: &[String],
+    ) -> Result<(String, String, String), String> {
         let use_latest_stable = tokens.contains(&"--latest-stable".to_string());
         let (latest_stable_game, latest_stable_loader, latest_stable_installer) =
             if use_latest_stable {
-                let versions = fabric_meta::fetch_latest_stable_versions()
+                let versions = fabric_meta::fetch_latest_stable_versions(client)
                     .await
                     .map_err(|e| format!("Failed to fetch latest stable versions: {e}"))?;
 
@@ -967,6 +1103,7 @@ mod tests {
                 },
             ],
             async_runtime: tokio::runtime::Runtime::new().unwrap(),
+            reqwest_client: reqwest::Client::new(),
         };
 
         let file_history = FileHistory::new();
