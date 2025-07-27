@@ -7,6 +7,8 @@ use std::{
     path::Path,
 };
 
+use crate::system::jar_parser;
+
 #[derive(Debug)]
 pub enum ConfigError {
     InvalidJarNumber,
@@ -97,6 +99,11 @@ impl From<String> for StartCommand {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum ServerFork {
+    Fabric, // will support more in the future
+}
+
 pub enum StartScript {
     Windows(String),
     Unix(String),
@@ -106,15 +113,26 @@ pub enum StartScript {
 pub struct Config {
     pub start_command: StartCommand,
     pub java_home: Option<String>,
+    pub server_fork: ServerFork,
 }
 
 impl Config {
     /// Create a new Config with max and min memory set to 4G.
-    pub fn new(jar_file_name: &str) -> Self {
-        Self {
-            start_command: StartCommand(format!("java -Xmx2G -Xms1G -jar {jar_file_name} nogui")),
+    pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let jar_path = jar_path.as_ref();
+        let server_fork = jar_parser::detect_server_fork(jar_path)?;
+        let jar_name = jar_path
+            .file_name()
+            .unwrap()
+            .to_os_string()
+            .into_string()
+            .unwrap();
+
+        Ok(Self {
+            start_command: StartCommand(format!("java -Xmx2G -Xms1G -jar {jar_name} nogui")),
             java_home: None,
-        }
+            server_fork,
+        })
     }
 
     pub fn load(path: &Path) -> anyhow::Result<Config> {

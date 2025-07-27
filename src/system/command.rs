@@ -615,7 +615,8 @@ impl CommandManager {
             elapsed_time.as_millis()
         );
 
-        let config = Config::new(&filename);
+        let config = Config::new(format!("{save_dir_path}/{filename}"))
+            .map_err(|e| format!("Failed to create a new config. Error: {e}."))?;
         config
             .save(&server_name)
             .map_err(|e| format!("Failed to save config: {e}"))?;
