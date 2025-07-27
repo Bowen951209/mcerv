@@ -835,6 +835,10 @@ impl CommandManager {
     }
 
     pub fn execute(&mut self, line: &str, state: &mut State) -> Result<(), String> {
+        if line.trim().is_empty() {
+            return Ok(());
+        }
+
         let tokens = shlex::split(line).ok_or("Failed to parse command".to_string())?;
 
         let command = self
