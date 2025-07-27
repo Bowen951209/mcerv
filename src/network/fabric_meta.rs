@@ -73,24 +73,29 @@ pub async fn fetch_latest_stable_versions(
     let (minecraft_versions, fabric_loader_versions, installer_versions) =
         get_versions(client).await?;
 
-    let minecraft_version = &minecraft_versions
+    let minecraft_version = minecraft_versions
         .into_iter()
         .find(|v| v["stable"].as_bool().unwrap())
-        .ok_or(anyhow!("Failed to find stable minecraft version"))?["version"];
-    let fabric_loader_version = &fabric_loader_versions
+        .ok_or(anyhow!("Failed to find stable minecraft version"))?["version"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let fabric_loader_version = fabric_loader_versions
         .into_iter()
         .find(|v| v["stable"].as_bool().unwrap())
-        .ok_or(anyhow!("Failed to find stable fabric loader version"))?["version"];
-    let installer_version = &installer_versions
+        .ok_or(anyhow!("Failed to find stable fabric loader version"))?["version"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let installer_version = installer_versions
         .into_iter()
         .find(|v| v["stable"].as_bool().unwrap())
-        .ok_or(anyhow!("Failed to find stable fabric installer version"))?["version"];
+        .ok_or(anyhow!("Failed to find stable fabric installer version"))?["version"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    Ok((
-        minecraft_version.to_string(),
-        fabric_loader_version.to_string(),
-        installer_version.to_string(),
-    ))
+    Ok((minecraft_version, fabric_loader_version, installer_version))
 }
 
 async fn get_versions(
@@ -132,7 +137,7 @@ fn filter_and_format(
         .map(|v| {
             format!(
                 "{} ({})",
-                v["version"],
+                v["version"].as_str().unwrap(),
                 if v["stable"].as_bool().unwrap() {
                     "stable"
                 } else {
