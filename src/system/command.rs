@@ -128,7 +128,7 @@ impl CommandManager {
                         options: vec![
                             CommandOption {
                                 name: "facets",
-                                help: "The search facets. For example, '[\"categories:fabric\", [\"versions:1.17.1\"]]'.",
+                                help: "The search facets. For example, \"categories:fabric, versions:1.17.1\".",
                             },
                             CommandOption {
                                 name: "index",
@@ -147,12 +147,8 @@ impl CommandManager {
                         sub_commands: vec![/*Subcommand is the project slug*/],
                         options: vec![
                             CommandOption {
-                                name: "loaders",
-                                help: "The loaders to filter by, e.g., '[\"fabric\", \"quilt\"]'.",
-                            },
-                            CommandOption {
                                 name: "game-versions",
-                                help: "The game versions to filter by, e.g., '[\"1.17.1\"]'.",
+                                help: "The game versions to filter by, e.g., \"1.17.1, 1.18\".",
                             },
                             CommandOption {
                                 name: "featured",
@@ -398,8 +394,8 @@ impl CommandManager {
         };
 
         let facets = match Self::get_option_value("facets", tokens) {
-            Ok(f) => Some(f.as_str()),
-            Err(OptionError::InvalidOption) => None,
+            Ok(f) => f.split(',').map(|f| f.trim()).collect(),
+            Err(OptionError::InvalidOption) => Vec::new(),
             Err(OptionError::MissingValue) => {
                 return Err("Missing --facets option value.".to_string());
             }
@@ -426,7 +422,7 @@ impl CommandManager {
             .block_on(modrinth::search(
                 &cmd_manager.reqwest_client,
                 query,
-                facets,
+                &facets,
                 index,
                 limit,
             ))
@@ -447,17 +443,9 @@ impl CommandManager {
             _ => return Err("No project slug provided.".to_string()),
         };
 
-        let loaders = match Self::get_option_value("loaders", tokens) {
-            Ok(l) => Some(l.as_str()),
-            Err(OptionError::InvalidOption) => None,
-            Err(OptionError::MissingValue) => {
-                return Err("Missing --loaders option value.".to_string());
-            }
-        };
-
         let game_versions = match Self::get_option_value("game-versions", tokens) {
-            Ok(gv) => Some(gv.as_str()),
-            Err(OptionError::InvalidOption) => None,
+            Ok(gv) => gv.split(',').map(|s| s.trim()).collect(),
+            Err(OptionError::InvalidOption) => Vec::new(),
             Err(OptionError::MissingValue) => {
                 return Err("Missing --game-versions option value.".to_string());
             }
@@ -478,8 +466,7 @@ impl CommandManager {
             .block_on(modrinth::get_project_versions(
                 &cmd_manager.reqwest_client,
                 project_slug,
-                loaders,
-                game_versions,
+                &game_versions,
                 featured,
             ))
             .map_err(|e| format!("Failed to get project versions: {e}"))?;

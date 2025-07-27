@@ -67,16 +67,25 @@ impl Display for ProjectVersionsResponse {
 pub async fn search(
     client: &reqwest::Client,
     query: &str,
-    facets: Option<&str>,
+    facets: &[&str],
     index: Option<&str>,
     limit: Option<&str>,
 ) -> anyhow::Result<SearchResponse> {
     let mut builder = client.get("https://api.modrinth.com/v2/search");
 
     builder = builder.query(&[("query", query)]);
-    if let Some(f) = facets {
-        builder = builder.query(&[("facets", f)]);
-    }
+
+    // Facets always include the Fabric category
+    let joined = facets
+        .iter()
+        .map(|f| format!(",[\"{}\"]", f))
+        .collect::<Vec<_>>()
+        .join("");
+
+    let facets = format!("[[\"categories:fabric\"]{joined}]");
+
+    builder = builder.query(&[("facets", facets)]);
+
     if let Some(i) = index {
         builder = builder.query(&[("index", i)]);
     }
@@ -92,8 +101,7 @@ pub async fn search(
 pub async fn get_project_versions(
     client: &reqwest::Client,
     project_slug: &str,
-    loaders: Option<&str>,
-    game_versions: Option<&str>,
+    game_versions: &[&str],
     featured: Option<bool>,
 ) -> anyhow::Result<ProjectVersionsResponse> {
     let mut builder = client.get(format!(
@@ -101,12 +109,17 @@ pub async fn get_project_versions(
         project_slug
     ));
 
-    if let Some(l) = loaders {
-        builder = builder.query(&[("loaders", l)]);
-    }
-    if let Some(gv) = game_versions {
-        builder = builder.query(&[("game_versions", gv)]);
-    }
+    // Only filter by Fabric loader
+    builder = builder.query(&[("loaders", "fabric")]);
+
+    let joined = game_versions
+        .iter()
+        .map(|gv| format!("[\"{}\"]", gv))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    builder = builder.query(&[("game_versions", format!("[{joined}]"))]);
+
     if let Some(f) = featured {
         builder = builder.query(&[("featured", &f.to_string())]);
     }
@@ -156,9 +169,9 @@ mod tests {
     async fn test_search_with_filters() {
         let client = reqwest::Client::new();
         let query = "map";
-        let facets = "[[\"categories:fabric\"]]";
+        let facets = ["license:mit", "project_type:mod"];
 
-        let result = search(&client, query, Some(facets), Some("downloads"), Some("4")).await;
+        let result = search(&client, query, &facets, Some("downloads"), Some("4")).await;
         assert!(result.is_ok());
     }
 
@@ -167,7 +180,7 @@ mod tests {
         let client = reqwest::Client::new();
         let query = "map";
 
-        let result = search(&client, query, None, None, None).await;
+        let result = search(&client, query, &[], None, None).await;
         assert!(result.is_ok());
     }
 
@@ -175,17 +188,10 @@ mod tests {
     async fn test_get_project_versions_with_filters() {
         let client = reqwest::Client::new();
         let project_slug = "fabric-api";
-        let loaders = "['fabric', 'quilt']";
-        let game_versions = "['1.21']";
+        let game_versions = ["1.21", "1.21.1"];
         let featured = true;
-        let result = get_project_versions(
-            &client,
-            project_slug,
-            Some(loaders),
-            Some(game_versions),
-            Some(featured),
-        )
-        .await;
+        let result =
+            get_project_versions(&client, project_slug, &game_versions, Some(featured)).await;
 
         assert!(result.is_ok());
     }
@@ -195,7 +201,7 @@ mod tests {
         let client = reqwest::Client::new();
         let project_slug = "fabric-api";
 
-        let result = get_project_versions(&client, project_slug, None, None, None).await;
+        let result = get_project_versions(&client, project_slug, &[], None).await;
         assert!(result.is_ok());
     }
 }
