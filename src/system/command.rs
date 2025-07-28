@@ -502,6 +502,12 @@ impl CommandManager {
             .select_server(server_name.to_owned())
             .map_err(|e| format!("Failed to select server. Error: {e}"))?;
 
+        let selected_server = state.selected_server.as_ref().unwrap();
+
+        println!("Selected server: {server_name}");
+        println!("Fork: {:?}", selected_server.config.server_fork);
+        println!("Game version: {}", selected_server.config.game_version);
+
         Ok(())
     }
 
