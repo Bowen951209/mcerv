@@ -110,7 +110,7 @@ pub async fn get_project_versions(
     ));
 
     // Only filter by Fabric loader
-    builder = builder.query(&[("loaders", "fabric")]);
+    builder = builder.query(&[("loaders", "[\"fabric\"]")]);
 
     let joined = game_versions
         .iter()
