@@ -385,17 +385,31 @@ impl CommandManager {
 
     fn search_mods_handler(
         cmd_manager: &mut CommandManager,
-        _: &mut State,
+        state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
+
         let query = match tokens.get(2) {
             Some(q) if !q.starts_with("-") => q,
             _ => return Err("No query provided.".to_string()),
         };
 
+        // Add game version & fabric facets to the search
+        let version_facet = format!("versions:{}", selected_server.config.game_version);
+        let fabric_facet = "categories:fabric";
+
         let facets = match Self::get_option_value("facets", tokens) {
-            Ok(f) => f.split(',').map(|f| f.trim()).collect(),
-            Err(OptionError::InvalidOption) => Vec::new(),
+            Ok(f) => f
+                .split(',')
+                .map(|f| f.trim())
+                .chain(std::iter::once(version_facet.as_str()))
+                .chain(std::iter::once(fabric_facet))
+                .collect(),
+            Err(OptionError::InvalidOption) => vec![version_facet.as_str(), fabric_facet],
             Err(OptionError::MissingValue) => {
                 return Err("Missing --facets option value.".to_string());
             }

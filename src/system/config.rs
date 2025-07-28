@@ -4,8 +4,10 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
+    io::BufReader,
     path::Path,
 };
+use zip::ZipArchive;
 
 use crate::system::jar_parser;
 
@@ -114,13 +116,20 @@ pub struct Config {
     pub start_command: StartCommand,
     pub java_home: Option<String>,
     pub server_fork: ServerFork,
+    pub game_version: String,
 }
 
 impl Config {
     /// Create a new Config with max and min memory set to 4G.
     pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let jar_path = jar_path.as_ref();
-        let server_fork = jar_parser::detect_server_fork(jar_path)?;
+        let file = File::open(jar_path)?;
+        let mut archive = ZipArchive::new(BufReader::new(file))?;
+
+        let server_fork = jar_parser::detect_server_fork(&mut archive)?;
+
+        let game_version = jar_parser::detect_game_version(&mut archive)?;
+
         let jar_name = jar_path
             .file_name()
             .unwrap()
@@ -132,6 +141,7 @@ impl Config {
             start_command: StartCommand(format!("java -Xmx2G -Xms1G -jar {jar_name} nogui")),
             java_home: None,
             server_fork,
+            game_version,
         })
     }
 
