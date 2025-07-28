@@ -370,7 +370,6 @@ impl CommandManager {
             .map(|entry| entry.expect("Failed to read entry").path())
             .filter(|path| path.extension().expect("Failed to get extension") == "jar");
 
-        // TODO: Use tokio async
         for jar in jars {
             let file = File::open(&jar).map_err(|e| format!("Failed to open file: {e}"))?;
 
