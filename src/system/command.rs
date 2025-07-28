@@ -95,7 +95,7 @@ impl CommandManager {
                 sub_commands: vec![SubCommand {
                     name: "servers".to_string(),
                     sub_commands: vec![],
-                    help: "List the servers in the config file.",
+                    help: "List the server names.",
                     options: vec![],
                     handler: Some(Self::list_servers_handler),
                 }],
