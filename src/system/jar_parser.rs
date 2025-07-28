@@ -42,7 +42,7 @@ impl Display for DetectServerInfoError {
 pub fn detect_server_fork(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::Result<ServerFork> {
     let manifest = parse_manifest(&read_file(archive, "META-INF/MANIFEST.MF")?);
 
-    // !!! Currenty support fabric only.
+    // !!! Currently support fabric only.
     if let Some(main_class) = manifest.get("Main-Class") {
         if main_class.contains("net.fabricmc") {
             return Ok(ServerFork::Fabric);
@@ -63,6 +63,16 @@ pub fn detect_game_version(archive: &mut ZipArchive<BufReader<File>>) -> anyhow:
     }
 
     Err(anyhow!(DetectServerInfoError::GameVersionNotFound))
+}
+
+pub fn detect_mod_id(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::Result<String> {
+    // Mod ID is stored in `fabric.mod.json`.
+    let fabric_mod_json = read_file(archive, "fabric.mod.json")?;
+    let fabric_mod: serde_json::Value = serde_json::from_str(&fabric_mod_json)?;
+
+    let id = fabric_mod["id"].as_str().unwrap();
+
+    Ok(id.to_string())
 }
 
 fn read_file(archive: &mut ZipArchive<BufReader<File>>, file_name: &str) -> anyhow::Result<String> {

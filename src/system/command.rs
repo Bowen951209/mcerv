@@ -2,8 +2,8 @@ use std::{
     env,
     error::Error,
     fmt::Display,
-    fs::{self},
-    io::Write,
+    fs::{self, File},
+    io::{BufReader, Write},
     process::{self},
     time::SystemTime,
 };
@@ -18,6 +18,7 @@ use rustyline::{
     history::FileHistory,
     validate::Validator,
 };
+use zip::ZipArchive;
 
 use crate::{
     network::{
@@ -26,6 +27,7 @@ use crate::{
     },
     system::{
         config::{Config, StartScript},
+        jar_parser,
         state::State,
     },
 };
@@ -92,13 +94,22 @@ impl CommandManager {
         vec![
             Command {
                 name: "list",
-                sub_commands: vec![SubCommand {
-                    name: "servers".to_string(),
-                    sub_commands: vec![],
-                    help: "List the server names.",
-                    options: vec![],
-                    handler: Some(Self::list_servers_handler),
-                }],
+                sub_commands: vec![
+                    SubCommand {
+                        name: "servers".to_string(),
+                        sub_commands: vec![],
+                        help: "List the server names.",
+                        options: vec![],
+                        handler: Some(Self::list_servers_handler),
+                    },
+                    SubCommand {
+                        name: "mods".to_string(),
+                        sub_commands: vec![],
+                        help: "List the mods of the selected server.",
+                        options: vec![],
+                        handler: Some(Self::list_mods_handler),
+                    },
+                ],
                 options: vec![],
                 help: "",
                 handler: None,
@@ -337,6 +348,39 @@ impl CommandManager {
 
         for server_name in &state.server_names {
             println!("{server_name}");
+        }
+
+        Ok(())
+    }
+
+    fn list_mods_handler(
+        _: &mut CommandManager,
+        state: &mut State,
+        _: &[String],
+    ) -> anyhow::Result<(), String> {
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
+
+        let mods_path = format!("instances/{}/mods", selected_server.name);
+
+        let jars = std::fs::read_dir(mods_path)
+            .map_err(|e| format!("Failed to read mods directory: {e}"))?
+            .map(|entry| entry.expect("Failed to read entry").path())
+            .filter(|path| path.extension().expect("Failed to get extension") == "jar");
+
+        // TODO: Use tokio async
+        for jar in jars {
+            let file = File::open(&jar).map_err(|e| format!("Failed to open file: {e}"))?;
+
+            let mut archive = ZipArchive::new(BufReader::new(file))
+                .map_err(|e| format!("Failed to open zip: {e}"))?;
+
+            let mod_id = jar_parser::detect_mod_id(&mut archive)
+                .map_err(|e| format!("Failed to detect mod ID: {e}"))?;
+
+            println!("{mod_id}");
         }
 
         Ok(())
