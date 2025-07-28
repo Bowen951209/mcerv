@@ -145,16 +145,10 @@ impl CommandManager {
                     SubCommand {
                         name: "mod-versions".to_string(),
                         sub_commands: vec![/*Subcommand is the project slug*/],
-                        options: vec![
-                            CommandOption {
-                                name: "game-versions",
-                                help: "The game versions to filter by, e.g., \"1.17.1, 1.18\".",
-                            },
-                            CommandOption {
-                                name: "featured",
-                                help: "Allows to filter for featured or non-featured versions only.",
-                            },
-                        ],
+                        options: vec![CommandOption {
+                            name: "featured",
+                            help: "Allows to filter for featured or non-featured versions only.",
+                        }],
                         help: "Get versions of a mod from Modrinth.",
                         handler: Some(Self::search_mod_versions_handler),
                     },
@@ -449,20 +443,19 @@ impl CommandManager {
 
     fn search_mod_versions_handler(
         cmd_manager: &mut CommandManager,
-        _: &mut State,
+        state: &mut State,
         tokens: &[String],
     ) -> Result<(), String> {
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
+
+        let game_version = &selected_server.config.game_version;
+
         let project_slug = match tokens.get(2) {
             Some(s) if !s.starts_with("-") => s,
             _ => return Err("No project slug provided.".to_string()),
-        };
-
-        let game_versions = match Self::get_option_value("game-versions", tokens) {
-            Ok(gv) => gv.split(',').map(|s| s.trim()).collect(),
-            Err(OptionError::InvalidOption) => Vec::new(),
-            Err(OptionError::MissingValue) => {
-                return Err("Missing --game-versions option value.".to_string());
-            }
         };
 
         let featured = match Self::get_option_value("featured", tokens) {
@@ -480,7 +473,7 @@ impl CommandManager {
             .block_on(modrinth::get_project_versions(
                 &cmd_manager.reqwest_client,
                 project_slug,
-                &game_versions,
+                &[&game_version],
                 featured,
             ))
             .map_err(|e| format!("Failed to get project versions: {e}"))?;

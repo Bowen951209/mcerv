@@ -114,7 +114,7 @@ pub async fn get_project_versions(
 
     let joined = game_versions
         .iter()
-        .map(|gv| format!("[\"{}\"]", gv))
+        .map(|gv| format!("\"{}\"", gv))
         .collect::<Vec<_>>()
         .join(",");
 
