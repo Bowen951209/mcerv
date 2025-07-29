@@ -45,7 +45,7 @@ impl Display for ProjectVersionsResponse {
 
         // The fields we want to display from each version
         let fields = [
-            "name",
+            "version_number",
             "id",
             "dependencies",
             "game_versions",
