@@ -957,6 +957,7 @@ dependencies = [
  "rustyline",
  "serde",
  "serde_json",
+ "sha1",
  "shlex",
  "tokio",
  "zip",

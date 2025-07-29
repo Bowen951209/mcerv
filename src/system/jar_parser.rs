@@ -6,6 +6,7 @@ use std::{
     io::{BufReader, Read},
 };
 
+use sha1::{Digest, Sha1};
 use zip::ZipArchive;
 
 use crate::system::config::ServerFork;
@@ -65,14 +66,13 @@ pub fn detect_game_version(archive: &mut ZipArchive<BufReader<File>>) -> anyhow:
     Err(anyhow!(DetectServerInfoError::GameVersionNotFound))
 }
 
-pub fn detect_mod_id(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::Result<String> {
-    // Mod ID is stored in `fabric.mod.json`.
-    let fabric_mod_json = read_file(archive, "fabric.mod.json")?;
-    let fabric_mod: serde_json::Value = serde_json::from_str(&fabric_mod_json)?;
-
-    let id = fabric_mod["id"].as_str().unwrap();
-
-    Ok(id.to_string())
+// Calculate the SHA1 hash of the file contents.
+pub fn calculate_hash(file: &mut File) -> std::io::Result<String> {
+    let mut hasher = Sha1::new();
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    hasher.update(&buffer);
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn read_file(archive: &mut ZipArchive<BufReader<File>>, file_name: &str) -> anyhow::Result<String> {

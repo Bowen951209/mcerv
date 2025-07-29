@@ -64,6 +64,15 @@ impl Display for ProjectVersionsResponse {
     }
 }
 
+pub struct ModVersion {
+    pub project_id: String,
+    // Prefer using the version name over the version number.
+    // Example: Multiple versions might share the version number `1.8.2`,
+    // but have distinct names such as `1.8.2-1.21.5 - Fabric` or `1.8.2-1.21.6 - Fabric`.
+    pub version_name: String,
+    pub hash: String,
+}
+
 pub async fn search(
     client: &reqwest::Client,
     query: &str,
@@ -159,6 +168,129 @@ pub async fn download_version(
     download_file(client, url, &file_path).await?;
 
     Ok(file_name.to_string())
+}
+
+// https://docs.modrinth.com/api/operations/getprojects/
+pub async fn get_project_slugs<I, S>(
+    client: &reqwest::Client,
+    project_ids: I,
+) -> anyhow::Result<Vec<String>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let project_ids = format!(
+        "[{}]",
+        project_ids
+            .into_iter()
+            .map(|id| format!("\"{}\"", id.as_ref()))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+
+    let result = client
+        .get("https://api.modrinth.com/v2/projects")
+        .query(&[("ids", project_ids)])
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let response: serde_json::Value = serde_json::from_str(&result.text().await?)?;
+
+    let slugs = response
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|project| {
+            project
+                .get("slug")
+                .and_then(|s| s.as_str())
+                .unwrap_or("N/A")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+
+    Ok(slugs)
+}
+
+// https://docs.modrinth.com/api/operations/versionsfromhashes/
+pub async fn get_versions(
+    client: &reqwest::Client,
+    jar_hashes: &[impl AsRef<str>],
+) -> anyhow::Result<Vec<ModVersion>> {
+    let request_body: serde_json::Value = serde_json::json!({
+        "hashes": jar_hashes.iter().map(|h| h.as_ref()).collect::<Vec<_>>(),
+        "algorithm": "sha1",
+    });
+
+    let result = client
+        .post("https://api.modrinth.com/v2/version_files")
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let response: serde_json::Value = serde_json::from_str(&result.text().await?)?;
+    parse_version_response(response)
+}
+
+// https://docs.modrinth.com/api/operations/getlatestversionfromhash/
+pub async fn get_latest_versions(
+    client: &reqwest::Client,
+    jar_hashes: &[impl AsRef<str>],
+    game_versions: &[impl AsRef<str>],
+) -> anyhow::Result<Vec<ModVersion>> {
+    let request_body: serde_json::Value = serde_json::json!({
+        "hashes": jar_hashes.iter().map(|h| h.as_ref()).collect::<Vec<_>>(),
+        "algorithm": "sha1",
+        "loaders": ["fabric"], // hardcoded fabric
+        "game_versions": game_versions.iter().map(|v| v.as_ref()).collect::<Vec<_>>()
+    });
+
+    let result = client
+        .post("https://api.modrinth.com/v2/version_files/update")
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let response: serde_json::Value = serde_json::from_str(&result.text().await?)?;
+    parse_version_response(response)
+}
+
+fn parse_version_response(response: serde_json::Value) -> anyhow::Result<Vec<ModVersion>> {
+    let response_map = response.as_object().unwrap();
+
+    let versions = response_map
+        .values()
+        .map(|v| {
+            let project_id = v["project_id"].as_str().unwrap().to_string();
+
+            let version_name = v
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("N/A")
+                .to_string();
+
+            let files = v["files"].as_array().unwrap();
+            if files.len() > 1 {
+                println!("Multiple files found for version {version_name}. Using the first one.");
+            }
+
+            let file = &files[0];
+            let hash = file["hashes"]["sha1"].as_str().unwrap().to_string();
+
+            ModVersion {
+                project_id,
+                version_name,
+                hash,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(versions)
 }
 
 #[cfg(test)]

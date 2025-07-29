@@ -3,7 +3,7 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
-    io::{BufReader, Write},
+    io::Write,
     process::{self},
     time::SystemTime,
 };
@@ -18,7 +18,6 @@ use rustyline::{
     history::FileHistory,
     validate::Validator,
 };
-use zip::ZipArchive;
 
 use crate::{
     network::{
@@ -105,7 +104,7 @@ impl CommandManager {
                     SubCommand {
                         name: "mods".to_string(),
                         sub_commands: vec![],
-                        help: "List the mods of the selected server.",
+                        help: "List installed mods with their current versions and check for updates on Modrinth.",
                         options: vec![],
                         handler: Some(Self::list_mods_handler),
                     },
@@ -354,7 +353,7 @@ impl CommandManager {
     }
 
     fn list_mods_handler(
-        _: &mut CommandManager,
+        cmd_manager: &mut CommandManager,
         state: &mut State,
         _: &[String],
     ) -> anyhow::Result<(), String> {
@@ -365,21 +364,59 @@ impl CommandManager {
 
         let mods_path = format!("instances/{}/mods", selected_server.name);
 
-        let jars = std::fs::read_dir(mods_path)
+        let mut jar_files = std::fs::read_dir(mods_path)
             .map_err(|e| format!("Failed to read mods directory: {e}"))?
             .map(|entry| entry.expect("Failed to read entry").path())
-            .filter(|path| path.extension().expect("Failed to get extension") == "jar");
+            .filter(|path| path.extension().expect("Failed to get extension") == "jar")
+            .map(|path| File::open(&path))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to open jar files: {e}"))?;
 
-        for jar in jars {
-            let file = File::open(&jar).map_err(|e| format!("Failed to open file: {e}"))?;
+        let jar_hashes = jar_files
+            .iter_mut()
+            .map(jar_parser::calculate_hash)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to calculate hashes: {e}"))?;
 
-            let mut archive = ZipArchive::new(BufReader::new(file))
-                .map_err(|e| format!("Failed to open zip: {e}"))?;
+        let game_versions = [selected_server.config.game_version.as_str()];
 
-            let mod_id = jar_parser::detect_mod_id(&mut archive)
-                .map_err(|e| format!("Failed to detect mod ID: {e}"))?;
+        let (latest_versions_res, old_versions_res) = cmd_manager.async_runtime.block_on(async {
+            tokio::join!(
+                modrinth::get_latest_versions(
+                    &cmd_manager.reqwest_client,
+                    &jar_hashes,
+                    &game_versions
+                ),
+                modrinth::get_versions(&cmd_manager.reqwest_client, &jar_hashes,)
+            )
+        });
 
-            println!("{mod_id}");
+        let latest_versions =
+            latest_versions_res.map_err(|e| format!("Failed to get latest versions: {e}"))?;
+
+        let old_versions =
+            old_versions_res.map_err(|e| format!("Failed to get old versions: {e}"))?;
+
+        let project_slugs = cmd_manager
+            .async_runtime
+            .block_on(modrinth::get_project_slugs(
+                &cmd_manager.reqwest_client,
+                old_versions.iter().map(|v| v.project_id.as_str()),
+            ))
+            .map_err(|e| format!("Failed to get project slugs: {e}"))?;
+
+        for ((latest_version, old_version), project_slug) in latest_versions
+            .into_iter()
+            .zip(old_versions.into_iter())
+            .zip(project_slugs.into_iter())
+        {
+            print!("{}: `{}` ", project_slug, old_version.version_name);
+
+            if latest_version.hash == old_version.hash {
+                println!("[OK] up-to-date");
+            } else {
+                println!("-> `{}`", latest_version.version_name);
+            }
         }
 
         Ok(())
