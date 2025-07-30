@@ -1,4 +1,4 @@
-use std::{fmt::Display, path::Path};
+use std::{collections::HashMap, fmt::Display, path::Path};
 
 use serde::Deserialize;
 
@@ -171,10 +171,11 @@ pub async fn download_version(
 }
 
 // https://docs.modrinth.com/api/operations/getprojects/
-pub async fn get_project_slugs<I, S>(
+// Cannot just return vec like other functions. This response will not guarantee the order.
+pub async fn get_project_slug_map<I, S>(
     client: &reqwest::Client,
     project_ids: I,
-) -> anyhow::Result<Vec<String>>
+) -> anyhow::Result<HashMap<String, String>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -197,20 +198,18 @@ where
 
     let response: serde_json::Value = serde_json::from_str(&result.text().await?)?;
 
-    let slugs = response
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|project| {
-            project
-                .get("slug")
-                .and_then(|s| s.as_str())
-                .unwrap_or("N/A")
-                .to_string()
-        })
-        .collect::<Vec<_>>();
+    let array = response.as_array().unwrap();
 
-    Ok(slugs)
+    let slug_map = array
+        .iter()
+        .filter_map(|project| {
+            let id = project["id"].as_str().unwrap().to_string();
+            let slug = project["slug"].as_str().unwrap().to_string();
+            Some((id, slug))
+        })
+        .collect::<HashMap<_, _>>();
+
+    Ok(slug_map)
 }
 
 // https://docs.modrinth.com/api/operations/versionsfromhashes/

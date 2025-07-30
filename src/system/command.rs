@@ -397,19 +397,18 @@ impl CommandManager {
         let old_versions =
             old_versions_res.map_err(|e| format!("Failed to get old versions: {e}"))?;
 
-        let project_slugs = cmd_manager
+        let slug_map = cmd_manager
             .async_runtime
-            .block_on(modrinth::get_project_slugs(
+            .block_on(modrinth::get_project_slug_map(
                 &cmd_manager.reqwest_client,
                 old_versions.iter().map(|v| v.project_id.as_str()),
             ))
             .map_err(|e| format!("Failed to get project slugs: {e}"))?;
 
-        for ((latest_version, old_version), project_slug) in latest_versions
-            .into_iter()
-            .zip(old_versions.into_iter())
-            .zip(project_slugs.into_iter())
+        for (latest_version, old_version) in
+            latest_versions.into_iter().zip(old_versions.into_iter())
         {
+            let project_slug = slug_map.get(&old_version.project_id).unwrap();
             print!("{}: `{}` ", project_slug, old_version.version_name);
 
             if latest_version.hash == old_version.hash {
