@@ -71,6 +71,8 @@ pub struct ModVersion {
     // but have distinct names such as `1.8.2-1.21.5 - Fabric` or `1.8.2-1.21.6 - Fabric`.
     pub version_name: String,
     pub hash: String,
+    pub file_url: String,
+    pub file_name: String,
 }
 
 pub async fn search(
@@ -165,7 +167,7 @@ pub async fn download_version(
     let url = files[0]["url"].as_str().unwrap();
     let file_name = files[0]["filename"].as_str().unwrap();
     let file_path = save_dir_path.as_ref().join(file_name);
-    download_file(client, url, &file_path).await?;
+    download_file(client, &url, &file_path).await?;
 
     Ok(file_name.to_string())
 }
@@ -231,7 +233,7 @@ pub async fn get_versions(
         .error_for_status()?;
 
     let response: serde_json::Value = serde_json::from_str(&result.text().await?)?;
-    parse_version_response(response)
+    parse_version_response(response, jar_hashes)
 }
 
 // https://docs.modrinth.com/api/operations/getlatestversionfromhash/
@@ -256,38 +258,41 @@ pub async fn get_latest_versions(
         .error_for_status()?;
 
     let response: serde_json::Value = serde_json::from_str(&result.text().await?)?;
-    parse_version_response(response)
+    parse_version_response(response, jar_hashes)
 }
 
-fn parse_version_response(response: serde_json::Value) -> anyhow::Result<Vec<ModVersion>> {
+fn parse_version_response(
+    response: serde_json::Value,
+    jar_hashes: &[impl AsRef<str>],
+) -> anyhow::Result<Vec<ModVersion>> {
     let response_map = response.as_object().unwrap();
 
-    let versions = response_map
-        .values()
-        .map(|v| {
-            let project_id = v["project_id"].as_str().unwrap().to_string();
+    let versions = jar_hashes
+        .iter()
+        .map(|hash| {
+            let value = &response_map[hash.as_ref()];
+            let project_id = value["project_id"].as_str().unwrap().to_string();
+            let version_name = value["name"].as_str().unwrap_or("N/A").to_string();
+            let files = value["files"].as_array().unwrap();
 
-            let version_name = v
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or("N/A")
-                .to_string();
-
-            let files = v["files"].as_array().unwrap();
             if files.len() > 1 {
                 println!("Multiple files found for version {version_name}. Using the first one.");
             }
 
             let file = &files[0];
             let hash = file["hashes"]["sha1"].as_str().unwrap().to_string();
+            let file_url = file["url"].as_str().unwrap().to_string();
+            let file_name = file["filename"].as_str().unwrap().to_string();
 
             ModVersion {
                 project_id,
                 version_name,
                 hash,
+                file_url,
+                file_name,
             }
         })
-        .collect::<Vec<_>>();
+        .collect();
 
     Ok(versions)
 }

@@ -29,7 +29,7 @@ pub async fn download_server(
         game_version, fabric_loader_version, installer_version
     );
 
-    download_file(client, &url, save_dir_path.as_ref().join(&filename)).await?;
+    download_file(client, &url, &save_dir_path.as_ref().join(&filename)).await?;
 
     Ok(filename)
 }

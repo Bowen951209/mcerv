@@ -21,6 +21,7 @@ use rustyline::{
 
 use crate::{
     network::{
+        self,
         fabric_meta::{self, PrintVersionMode},
         modrinth,
     },
@@ -105,7 +106,10 @@ impl CommandManager {
                         name: "mods".to_string(),
                         sub_commands: vec![],
                         help: "List installed mods with their current versions and check for updates on Modrinth.",
-                        options: vec![],
+                        options: vec![CommandOption {
+                            name: "update",
+                            help: "Whether to update the mod if available.",
+                        }],
                         handler: Some(Self::list_mods_handler),
                     },
                 ],
@@ -352,10 +356,13 @@ impl CommandManager {
         Ok(())
     }
 
+    /// List installed mods in the selected server's mods directory.
+    /// Will also check for updates on Modrinth.
+    /// If there are updates available, will ask the user if they want to update.
     fn list_mods_handler(
         cmd_manager: &mut CommandManager,
         state: &mut State,
-        _: &[String],
+        tokens: &[String],
     ) -> anyhow::Result<(), String> {
         let selected_server = state
             .selected_server
@@ -364,10 +371,14 @@ impl CommandManager {
 
         let mods_path = format!("instances/{}/mods", selected_server.name);
 
-        let mut jar_files = std::fs::read_dir(mods_path)
+        let jar_paths = std::fs::read_dir(&mods_path)
             .map_err(|e| format!("Failed to read mods directory: {e}"))?
             .map(|entry| entry.expect("Failed to read entry").path())
             .filter(|path| path.extension().expect("Failed to get extension") == "jar")
+            .collect::<Vec<_>>();
+
+        let mut jar_files = jar_paths
+            .iter()
             .map(|path| File::open(&path))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to open jar files: {e}"))?;
@@ -405,8 +416,12 @@ impl CommandManager {
             ))
             .map_err(|e| format!("Failed to get project slugs: {e}"))?;
 
-        for (latest_version, old_version) in
-            latest_versions.into_iter().zip(old_versions.into_iter())
+        let mut available_updates = Vec::new();
+
+        for ((latest_version, old_version), jar_path) in latest_versions
+            .into_iter()
+            .zip(old_versions.into_iter())
+            .zip(jar_paths.iter())
         {
             let project_slug = slug_map.get(&old_version.project_id).unwrap();
             print!("{}: `{}` ", project_slug, old_version.version_name);
@@ -415,7 +430,44 @@ impl CommandManager {
                 println!("[OK] up-to-date");
             } else {
                 println!("-> `{}`", latest_version.version_name);
+                available_updates.push((jar_path, latest_version));
             }
+        }
+
+        println!("You have {} mods installed.", jar_files.len());
+        println!("You have {} available updates:", available_updates.len());
+
+        let should_update = tokens.contains(&"--update".to_string());
+        if should_update {
+            println!("Updating mods...");
+
+            let downloads = available_updates.iter().map(|(_, version)| {
+                let url = version.file_url.clone();
+                let save_path = format!(
+                    "instances/{}/mods/{}",
+                    selected_server.name, version.file_name
+                )
+                .into();
+                (url, save_path)
+            });
+
+            cmd_manager
+                .async_runtime
+                .block_on(network::download_files(
+                    &cmd_manager.reqwest_client,
+                    downloads,
+                ))
+                .map_err(|e| format!("Failed to download updates: {e}"))?;
+
+            // Delete old jar files
+            for (jar_path, _) in &available_updates {
+                if let Err(e) = fs::remove_file(jar_path) {
+                    // Do not return error here, because we want to delete the rest.
+                    eprintln!("Failed to delete old jar file: {e}");
+                }
+            }
+
+            println!("Mods updated successfully.");
         }
 
         Ok(())
