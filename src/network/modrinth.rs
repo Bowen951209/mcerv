@@ -178,6 +178,7 @@ pub async fn download_version(
 
 // https://docs.modrinth.com/api/operations/getprojects/
 // Cannot just return vec like other functions. This response will not guarantee the order.
+/// Returns a map of project IDs to slugs.
 pub async fn get_project_slug_map<I, S>(
     client: &reqwest::Client,
     project_ids: I,
