@@ -1173,7 +1173,7 @@ impl CommandManager {
             })
     }
 
-    async fn get_versions<'a>(
+    async fn get_versions(
         client: &reqwest::Client,
         tokens: &[String],
     ) -> Result<(String, String, String), String> {
