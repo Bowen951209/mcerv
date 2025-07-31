@@ -392,7 +392,7 @@ impl CommandManager {
 
         let mut jar_files = jar_paths
             .iter()
-            .map(|path| File::open(path))
+            .map(File::open)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to open jar files: {e}"))?;
 
