@@ -511,7 +511,7 @@ impl CommandManager {
                 &cmd_manager.reqwest_client,
                 mode,
             ))
-            .map_err(|e| format!("print versions failed. {}", e))?;
+            .map_err(|e| format!("print versions failed. {e}"))?;
 
         let end = SystemTime::now();
         let duration = end.duration_since(start).unwrap();
@@ -580,7 +580,7 @@ impl CommandManager {
             ))
             .map_err(|e| format!("Search failed: {e}"))?;
 
-        println!("{}", response);
+        println!("{response}");
 
         Ok(())
     }
@@ -622,7 +622,7 @@ impl CommandManager {
             ))
             .map_err(|e| format!("Failed to get project versions: {e}"))?;
 
-        println!("{}", response);
+        println!("{response}");
         Ok(())
     }
 
@@ -996,8 +996,7 @@ impl CommandManager {
         }
 
         println!(
-            "Supported mods: {}, Unsupported mods: {}",
-            supported_count, unsupported_count
+            "Supported mods: {supported_count}, Unsupported mods: {unsupported_count}"
         );
 
         Ok(())

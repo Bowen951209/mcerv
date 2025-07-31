@@ -20,13 +20,11 @@ pub async fn download_server(
     save_dir_path: impl AsRef<Path>,
 ) -> Result<String> {
     let url = format!(
-        "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
-        game_version, fabric_loader_version, installer_version
+        "https://meta.fabricmc.net/v2/versions/loader/{game_version}/{fabric_loader_version}/{installer_version}/server/jar"
     );
 
     let filename = format!(
-        "fabric-server-mc.{}-loader.{}-launcher.{}.jar",
-        game_version, fabric_loader_version, installer_version
+        "fabric-server-mc.{game_version}-loader.{fabric_loader_version}-launcher.{installer_version}.jar"
     );
 
     download_file(client, &url, &save_dir_path.as_ref().join(&filename)).await?;
