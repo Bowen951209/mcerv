@@ -1118,7 +1118,7 @@ impl CommandManager {
         subs.iter()
             .filter(|s| {
                 input.chars().last().unwrap().is_whitespace()
-                    || last_token.map_or(true, |t| s.name.starts_with(t))
+                    || last_token.is_none_or(|t| s.name.starts_with(t))
             })
             .map(|s| SmartCandidate {
                 word: s.name.to_string(),
