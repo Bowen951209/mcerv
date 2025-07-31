@@ -49,10 +49,10 @@ pub fn detect_server_fork(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::
             return Ok(ServerFork::Fabric);
         }
 
-        return Err(anyhow!(DetectServerInfoError::UnknownServerFork));
+        anyhow::bail!(DetectServerInfoError::UnknownServerFork);
     }
 
-    Err(anyhow!(DetectServerInfoError::MainClassNotFound))
+    anyhow::bail!(DetectServerInfoError::MainClassNotFound);
 }
 
 pub fn detect_game_version(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::Result<String> {
@@ -63,7 +63,7 @@ pub fn detect_game_version(archive: &mut ZipArchive<BufReader<File>>) -> anyhow:
         return Ok(version.clone());
     }
 
-    Err(anyhow!(DetectServerInfoError::GameVersionNotFound))
+    anyhow::bail!(DetectServerInfoError::GameVersionNotFound);
 }
 
 // Calculate the SHA1 hash of the file contents.

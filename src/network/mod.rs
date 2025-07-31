@@ -8,7 +8,6 @@ use reqwest::StatusCode;
 pub mod fabric_meta;
 pub mod modrinth;
 
-use anyhow::anyhow;
 use tokio::task::JoinSet;
 
 pub async fn download_file(
@@ -20,7 +19,7 @@ pub async fn download_file(
     let status = response.status();
 
     if status != StatusCode::OK {
-        return Err(anyhow!(status));
+        anyhow::bail!(status);
     }
 
     fs::create_dir_all(
