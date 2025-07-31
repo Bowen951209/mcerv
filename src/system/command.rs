@@ -297,6 +297,19 @@ impl CommandManager {
                 handler: None,
             },
             Command {
+                name: "check",
+                sub_commands: vec![SubCommand {
+                    name: "mods-support".to_string(),
+                    sub_commands: vec![/*Subcommand is the game version*/],
+                    options: vec![],
+                    help: "Check if the mods in the selected server have availible version for the specified game version on Modrinth.",
+                    handler: Some(Self::check_mods_support_handler),
+                }],
+                options: vec![],
+                help: "",
+                handler: None,
+            },
+            Command {
                 name: "accept-eula",
                 sub_commands: vec![],
                 options: vec![],
@@ -892,6 +905,96 @@ impl CommandManager {
 
         let elapsed_time = start_time.elapsed().unwrap();
         println!("Update complete. Duration: {}ms", elapsed_time.as_millis());
+
+        Ok(())
+    }
+
+    fn check_mods_support_handler(
+        cmd_manager: &mut CommandManager,
+        state: &mut State,
+        tokens: &[String],
+    ) -> Result<(), String> {
+        let selected_server = state
+            .selected_server
+            .as_ref()
+            .ok_or("No server selected.")?;
+
+        let game_version = tokens.get(2).ok_or("No game version specified.")?;
+
+        let mods_path = format!("instances/{}/mods", selected_server.name);
+
+        let jar_hashes = std::fs::read_dir(&mods_path)
+            .map_err(|e| format!("Failed to read mods directory: {e}"))?
+            .map(|entry| entry.expect("Failed to read entry").path())
+            .filter(|path| path.extension().map_or(false, |ext| ext == "jar"))
+            .map(|path| {
+                let mut file = File::open(&path)
+                    .map_err(|e| format!("Failed to open jar file {}: {e}", path.display()))?;
+                jar_parser::calculate_hash(&mut file)
+                    .map_err(|e| format!("Failed to calculate hash for {}: {e}", path.display()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mod_versions = cmd_manager
+            .async_runtime
+            .block_on(modrinth::get_versions(
+                &cmd_manager.reqwest_client,
+                &jar_hashes,
+            ))
+            .map_err(|e| format!("Failed to get mod versions: {e}"))?;
+
+        let slug_map = cmd_manager
+            .async_runtime
+            .block_on(modrinth::get_project_slug_map(
+                &cmd_manager.reqwest_client,
+                mod_versions.iter().map(|v| v.project_id.as_str()),
+            ))
+            .map_err(|e| format!("Failed to get project slugs: {e}"))?;
+
+        // Prepare all futures for concurrent execution
+        let futures = mod_versions.iter().map(|version| {
+            let project_slug = slug_map.get(&version.project_id).unwrap();
+            let client = &cmd_manager.reqwest_client;
+            async move {
+                let response =
+                    modrinth::get_project_versions(client, &project_slug, &[&game_version], None)
+                        .await;
+                (project_slug, response)
+            }
+        });
+
+        // Run all futures concurrently
+        let results = cmd_manager
+            .async_runtime
+            .block_on(async { futures::future::join_all(futures).await });
+
+        let mut supported_count = 0;
+        let mut unsupported_count = 0;
+
+        for (project_slug, response) in results {
+            match response {
+                Ok(resp) => {
+                    let supported = !resp.versions().is_empty();
+                    if supported {
+                        println!("{project_slug}: [OK] supported");
+                        supported_count += 1;
+                    } else {
+                        println!("{project_slug}: unsupported");
+                        unsupported_count += 1;
+                    }
+                }
+                Err(e) => {
+                    println!("{project_slug}: failed to check support: {e}");
+                    // Do not return error here, because we want to check the rest.
+                    unsupported_count += 1;
+                }
+            }
+        }
+
+        println!(
+            "Supported mods: {}, Unsupported mods: {}",
+            supported_count, unsupported_count
+        );
 
         Ok(())
     }

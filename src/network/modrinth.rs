@@ -39,6 +39,12 @@ impl Display for SearchResponse {
 #[derive(Deserialize)]
 pub struct ProjectVersionsResponse(serde_json::Value);
 
+impl ProjectVersionsResponse {
+    pub fn versions(&self) -> &Vec<serde_json::Value> {
+        self.0.as_array().unwrap()
+    }
+}
+
 impl Display for ProjectVersionsResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let versions = self.0.as_array().unwrap();
