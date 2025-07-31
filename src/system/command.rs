@@ -1236,7 +1236,7 @@ impl Completer for CommandManager {
         }
 
         let cmd_name = &tokens[0];
-        let maybe_cmd = self.commands.iter().find(|cmd| &cmd.name == cmd_name);
+        let maybe_cmd = self.commands.iter().find(|cmd| cmd.name == cmd_name);
 
         match maybe_cmd {
             Some(cmd) => {
