@@ -97,7 +97,7 @@ pub async fn search(
     // Facets always include the Fabric category
     let joined = facets
         .iter()
-        .map(|f| format!(",[\"{}\"]", f))
+        .map(|f| format!(",[\"{f}\"]"))
         .collect::<Vec<_>>()
         .join("");
 
@@ -126,8 +126,7 @@ pub async fn get_project_versions(
     featured: Option<bool>,
 ) -> anyhow::Result<ProjectVersionsResponse> {
     let mut builder = client.get(format!(
-        "https://api.modrinth.com/v2/project/{}/version",
-        project_slug
+        "https://api.modrinth.com/v2/project/{project_slug}/version"
     ));
 
     // Only filter by Fabric loader
@@ -135,7 +134,7 @@ pub async fn get_project_versions(
 
     let joined = game_versions
         .iter()
-        .map(|gv| format!("\"{}\"", gv))
+        .map(|gv| format!("\"{gv}\""))
         .collect::<Vec<_>>()
         .join(",");
 
@@ -169,8 +168,7 @@ pub async fn download_version(
 
     if files.len() > 1 {
         println!(
-            "Multiple files found for version {}. Downloading the first on the list...",
-            version_id
+            "Multiple files found for version {version_id}. Downloading the first on the list..."
         );
     }
 

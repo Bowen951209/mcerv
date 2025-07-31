@@ -20,7 +20,7 @@ pub enum InvalidOccurrenceCountError {
 
 impl Display for InvalidOccurrenceCountError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -74,7 +74,7 @@ impl StartCommand {
         // Find the Xmx in start_command and replace it
         let mut tokens = self.split();
         let found_xmx = tokens.iter_mut().find(|t| t.contains("-Xmx")).unwrap();
-        *found_xmx = format!("-Xmx{}", max_memory);
+        *found_xmx = format!("-Xmx{max_memory}");
 
         let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
         self.0 = shlex::try_join(str_tokens)?;
@@ -86,7 +86,7 @@ impl StartCommand {
         // Find the Xms in start_command and replace it
         let mut tokens = self.split();
         let found_xms = tokens.iter_mut().find(|t| t.contains("-Xms")).unwrap();
-        *found_xms = format!("-Xms{}", min_memory);
+        *found_xms = format!("-Xms{min_memory}");
 
         let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
         self.0 = shlex::try_join(str_tokens)?;
@@ -183,9 +183,8 @@ impl Config {
 
             let java_home_script = match &self.java_home {
                 Some(java_home) => format!(
-                    r#"set JAVA_HOME={}
-set PATH=%JAVA_HOME%\bin;%PATH%"#,
-                    java_home
+                    r#"set JAVA_HOME={java_home}
+set PATH=%JAVA_HOME%\bin;%PATH%"#
                 ),
                 None => String::new(),
             };
@@ -203,9 +202,8 @@ java --version
             // Unix shell script
             let java_home_script = match &self.java_home {
                 Some(java_home) => format!(
-                    r#"export JAVA_HOME="{}"
-export PATH="$JAVA_HOME/bin:$PATH""#,
-                    java_home
+                    r#"export JAVA_HOME="{java_home}"
+export PATH="$JAVA_HOME/bin:$PATH""#
                 ),
                 None => String::new(),
             };

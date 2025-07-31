@@ -14,7 +14,7 @@ pub enum SelectServerError {
 
 impl Display for SelectServerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -85,8 +85,7 @@ impl State {
 
             if new_fork != old_fork {
                 eprintln!(
-                    "Detected server fork changed from {:?} to {:?}. This may cause issues.",
-                    old_fork, new_fork
+                    "Detected server fork changed from {old_fork:?} to {new_fork:?}. This may cause issues."
                 );
             }
 
