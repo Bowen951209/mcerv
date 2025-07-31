@@ -117,18 +117,13 @@ pub struct Config {
     pub java_home: Option<String>,
     pub server_fork: ServerFork,
     pub game_version: String,
+    pub server_jar_hash: String,
 }
 
 impl Config {
     /// Create a new Config with max and min memory set to 4G.
     pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let jar_path = jar_path.as_ref();
-        let file = File::open(jar_path)?;
-        let mut archive = ZipArchive::new(BufReader::new(file))?;
-
-        let server_fork = jar_parser::detect_server_fork(&mut archive)?;
-
-        let game_version = jar_parser::detect_game_version(&mut archive)?;
 
         let jar_name = jar_path
             .file_name()
@@ -137,15 +132,37 @@ impl Config {
             .into_string()
             .unwrap();
 
+        let start_command = StartCommand(format!("java -Xmx4G -Xms4G -jar {jar_name} nogui"));
+
+        let instance = Self::new_with_start_command(start_command, jar_path)?;
+
+        Ok(instance)
+    }
+
+    pub fn new_with_start_command(
+        start_command: StartCommand,
+        jar_path: impl AsRef<Path>,
+    ) -> anyhow::Result<Self> {
+        let jar_path = jar_path.as_ref();
+        let mut jar_file = File::open(jar_path)?;
+
+        let server_jar_hash = jar_parser::calculate_hash(&mut jar_file)?;
+
+        let mut archive = ZipArchive::new(BufReader::new(jar_file))?;
+
+        let server_fork = jar_parser::detect_server_fork(&mut archive)?;
+        let game_version = jar_parser::detect_game_version(&mut archive)?;
+
         Ok(Self {
-            start_command: StartCommand(format!("java -Xmx2G -Xms1G -jar {jar_name} nogui")),
+            start_command,
             java_home: None,
             server_fork,
             game_version,
+            server_jar_hash,
         })
     }
 
-    pub fn load(path: &Path) -> anyhow::Result<Config> {
+    pub fn load(path: &impl AsRef<Path>) -> anyhow::Result<Config> {
         let config_content = fs::read_to_string(path)?;
         let config: Config = serde_json::from_str(&config_content)?;
         config.check_validity()?;
