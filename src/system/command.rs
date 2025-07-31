@@ -642,6 +642,10 @@ impl CommandManager {
         let selected_server = state.selected_server.as_ref().unwrap();
 
         println!("Selected server: {server_name}");
+        println!(
+            "JAR: {}",
+            selected_server.config.start_command.get_jar_name()
+        );
         println!("Fork: {:?}", selected_server.config.server_fork);
         println!("Game version: {}", selected_server.config.game_version);
 
