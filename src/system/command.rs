@@ -1110,8 +1110,8 @@ impl CommandManager {
         handler(self, state, &tokens)
     }
 
-    fn suggest_subcommands<'a>(
-        subs: &'a [SubCommand],
+    fn suggest_subcommands(
+        subs: &[SubCommand],
         last_token: Option<&String>,
         input: &str,
     ) -> Vec<SmartCandidate> {
