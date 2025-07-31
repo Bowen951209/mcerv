@@ -215,10 +215,10 @@ where
 
     let slug_map = array
         .iter()
-        .filter_map(|project| {
+        .map(|project| {
             let id = project["id"].as_str().unwrap().to_string();
             let slug = project["slug"].as_str().unwrap().to_string();
-            Some((id, slug))
+            (id, slug)
         })
         .collect::<HashMap<_, _>>();
 
