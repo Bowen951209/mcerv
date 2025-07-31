@@ -1141,7 +1141,7 @@ impl CommandManager {
                     || last_char == '-'
                     || tokens
                         .last()
-                        .map_or(true, |t| opt.name.starts_with(t.trim_start_matches("-")))
+                        .is_none_or(|t| opt.name.starts_with(t.trim_start_matches("-")))
             })
             .filter(|opt| !tokens.contains(&format!("--{}", opt.name)))
             .map(|opt| SmartCandidate {
