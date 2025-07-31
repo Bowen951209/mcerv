@@ -12,19 +12,19 @@ use zip::ZipArchive;
 use crate::system::jar_parser;
 
 #[derive(Debug)]
-pub enum ConfigError {
-    InvalidJarNumber,
-    InvalidXmxNumber,
-    InvalidXmsNumber,
+pub enum InvalidOccurrenceCountError {
+    Jar,
+    Xmx,
+    Xms,
 }
 
-impl Display for ConfigError {
+impl Display for InvalidOccurrenceCountError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl Error for ConfigError {}
+impl Error for InvalidOccurrenceCountError {}
 
 #[derive(Serialize, Deserialize)]
 pub struct StartCommand(String);
@@ -34,19 +34,19 @@ impl StartCommand {
         shlex::split(&self.0).expect("Command is erroneous")
     }
 
-    fn check_valid(&self) -> Result<(), ConfigError> {
+    fn check_valid(&self) -> Result<(), InvalidOccurrenceCountError> {
         let tokens = self.split();
 
         if tokens.iter().filter(|t| t.contains(".jar")).count() != 1 {
-            return Err(ConfigError::InvalidJarNumber);
+            return Err(InvalidOccurrenceCountError::Jar);
         }
 
         if tokens.iter().filter(|t| t.contains("-Xmx")).count() != 1 {
-            return Err(ConfigError::InvalidXmxNumber);
+            return Err(InvalidOccurrenceCountError::Xmx);
         }
 
         if tokens.iter().filter(|t| t.contains("-Xms")).count() != 1 {
-            return Err(ConfigError::InvalidXmsNumber);
+            return Err(InvalidOccurrenceCountError::Xms);
         }
 
         Ok(())
@@ -177,7 +177,7 @@ impl Config {
         Ok(())
     }
 
-    pub fn create_start_script(&self) -> Result<StartScript, ConfigError> {
+    pub fn create_start_script(&self) -> Result<StartScript, InvalidOccurrenceCountError> {
         let script = if cfg!(target_os = "windows") {
             // Windows batch script
 
@@ -224,7 +224,7 @@ java --version
         Ok(script)
     }
 
-    pub fn check_validity(&self) -> Result<(), ConfigError> {
+    pub fn check_validity(&self) -> Result<(), InvalidOccurrenceCountError> {
         self.start_command.check_valid()
     }
 }
