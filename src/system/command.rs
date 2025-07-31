@@ -995,9 +995,7 @@ impl CommandManager {
             }
         }
 
-        println!(
-            "Supported mods: {supported_count}, Unsupported mods: {unsupported_count}"
-        );
+        println!("Supported mods: {supported_count}, Unsupported mods: {unsupported_count}");
 
         Ok(())
     }
