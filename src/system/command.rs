@@ -392,7 +392,7 @@ impl CommandManager {
 
         let mut jar_files = jar_paths
             .iter()
-            .map(|path| File::open(&path))
+            .map(|path| File::open(path))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to open jar files: {e}"))?;
 
@@ -617,7 +617,7 @@ impl CommandManager {
             .block_on(modrinth::get_project_versions(
                 &cmd_manager.reqwest_client,
                 project_slug,
-                &[&game_version],
+                &[game_version],
                 featured,
             ))
             .map_err(|e| format!("Failed to get project versions: {e}"))?;
@@ -721,7 +721,7 @@ impl CommandManager {
         let java_home = tokens.get(2).ok_or("No JAVA_HOME provided.")?;
 
         // Check if the path exists
-        if !fs::metadata(java_home).is_ok() {
+        if fs::metadata(java_home).is_err() {
             return Err(format!("The path {java_home} does not exist."));
         }
 
@@ -779,7 +779,7 @@ impl CommandManager {
         let config = Config::new(format!("{save_dir_path}/{filename}"))
             .map_err(|e| format!("Failed to create a new config. Error: {e}."))?;
         config
-            .save(&server_name)
+            .save(server_name)
             .map_err(|e| format!("Failed to save config: {e}"))?;
         println!("Config created and saved");
 
@@ -930,7 +930,7 @@ impl CommandManager {
         let jar_hashes = std::fs::read_dir(&mods_path)
             .map_err(|e| format!("Failed to read mods directory: {e}"))?
             .map(|entry| entry.expect("Failed to read entry").path())
-            .filter(|path| path.extension().map_or(false, |ext| ext == "jar"))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "jar"))
             .map(|path| {
                 let mut file = File::open(&path)
                     .map_err(|e| format!("Failed to open jar file {}: {e}", path.display()))?;
@@ -961,7 +961,7 @@ impl CommandManager {
             let client = &cmd_manager.reqwest_client;
             async move {
                 let response =
-                    modrinth::get_project_versions(client, &project_slug, &[&game_version], None)
+                    modrinth::get_project_versions(client, project_slug, &[game_version], None)
                         .await;
                 (project_slug, response)
             }
