@@ -51,6 +51,7 @@ impl Display for OptionError {
 
 impl Error for OptionError {}
 
+#[derive(Default)]
 pub struct Command {
     pub name: &'static str,
     pub sub_commands: Vec<SubCommand>,
@@ -59,6 +60,7 @@ pub struct Command {
     pub handler: Option<Handler>,
 }
 
+#[derive(Default)]
 pub struct SubCommand {
     // This is not a &'static str because we will define subcommands
     // at runtime. For example, the command `select` will have a variable
@@ -97,32 +99,28 @@ impl CommandManager {
                 sub_commands: vec![
                     SubCommand {
                         name: "servers".to_string(),
-                        sub_commands: vec![],
                         help: "List the server names.",
-                        options: vec![],
                         handler: Some(Self::list_servers_handler),
+                        ..Default::default()
                     },
                     SubCommand {
                         name: "mods".to_string(),
-                        sub_commands: vec![],
                         help: "List installed mods with their current versions and check for updates on Modrinth.",
                         options: vec![CommandOption {
                             name: "update",
                             help: "Whether to update the mod if available.",
                         }],
                         handler: Some(Self::list_mods_handler),
+                        ..Default::default()
                     },
                 ],
-                options: vec![],
-                help: "",
-                handler: None,
+                ..Default::default()
             },
             Command {
                 name: "search",
                 sub_commands: vec![
                     SubCommand {
                         name: "server-versions".to_string(),
-                        sub_commands: vec![],
                         options: vec![
                             CommandOption {
                                 name: "all",
@@ -135,6 +133,7 @@ impl CommandManager {
                         ],
                         help: "List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta.",
                         handler: Some(Self::search_server_versions_handler),
+                        ..Default::default()
                     },
                     SubCommand {
                         name: "mods".to_string(),
@@ -167,52 +166,43 @@ impl CommandManager {
                         handler: Some(Self::search_mod_versions_handler),
                     },
                 ],
-                options: vec![],
-                help: "",
-                handler: None,
+                ..Default::default()
             },
             Command {
                 name: "select",
-                sub_commands: vec![],
-                options: vec![],
                 help: "Select a server from the servers list to operate on.",
                 handler: Some(Self::select_handler),
+                ..Default::default()
             },
             Command {
                 name: "selected",
-                sub_commands: vec![],
-                options: vec![],
                 help: "Get the currently selected server.",
                 handler: Some(Self::selected_handler),
+                ..Default::default()
             },
             Command {
                 name: "set",
                 sub_commands: vec![
                     SubCommand {
                         name: "max-memory".to_string(),
-                        sub_commands: vec![],
                         help: "Set the maximum memory for the server.",
-                        options: vec![],
                         handler: Some(Self::set_max_memory_handler),
+                        ..Default::default()
                     },
                     SubCommand {
                         name: "min-memory".to_string(),
-                        sub_commands: vec![],
                         help: "Set the minimum memory for the server.",
-                        options: vec![],
                         handler: Some(Self::set_min_memory_handler),
+                        ..Default::default()
                     },
                     SubCommand {
                         name: "java".to_string(),
-                        sub_commands: vec![],
                         help: "Set the JAVA_HOME for the server. This will change the start command to use the specified Java.",
-                        options: vec![],
                         handler: Some(Self::set_java_home_handler),
+                        ..Default::default()
                     },
                 ],
-                options: vec![],
-                help: "",
-                handler: None,
+                ..Default::default()
             },
             Command {
                 name: "add",
@@ -244,33 +234,27 @@ impl CommandManager {
                     SubCommand {
                         name: "mod".to_string(),
                         sub_commands: vec![/*Subcommand is the mod version ID*/],
-                        options: vec![],
                         help: "Download a mod version from Modrinth.",
                         handler: Some(Self::add_mod_handler),
+                        ..Default::default()
                     },
                 ],
-                options: vec![],
-                help: "",
-                handler: None,
+                ..Default::default()
             },
             Command {
                 name: "generate",
                 sub_commands: vec![SubCommand {
                     name: "start-script".to_string(),
-                    sub_commands: vec![],
                     help: "Generate a start script for the selected server.",
-                    options: vec![],
                     handler: Some(Self::generate_start_script_handler),
+                    ..Default::default()
                 }],
-                options: vec![],
-                help: "",
-                handler: None,
+                ..Default::default()
             },
             Command {
                 name: "update",
                 sub_commands: vec![SubCommand {
                     name: "server".to_string(),
-                    sub_commands: vec![],
                     options: vec![
                         CommandOption {
                             name: "game",
@@ -291,44 +275,38 @@ impl CommandManager {
                     ],
                     help: "Update the server executable jar to the specified versions.",
                     handler: Some(Self::update_server_handler),
+                    ..Default::default()
                 }],
-                options: vec![],
-                help: "",
-                handler: None,
+                ..Default::default()
             },
             Command {
                 name: "check",
                 sub_commands: vec![SubCommand {
                     name: "mods-support".to_string(),
                     sub_commands: vec![/*Subcommand is the game version*/],
-                    options: vec![],
                     help: "Check if the mods in the selected server have availible version for the specified game version on Modrinth.",
                     handler: Some(Self::check_mods_support_handler),
+                    ..Default::default()
                 }],
-                options: vec![],
-                help: "",
-                handler: None,
+                ..Default::default()
             },
             Command {
                 name: "accept-eula",
-                sub_commands: vec![],
-                options: vec![],
                 help: "Accept the EULA for the selected server. This will modify the eula.txt file.",
                 handler: Some(Self::accept_eula_handler),
+                ..Default::default()
             },
             Command {
                 name: "start",
-                sub_commands: vec![],
-                options: vec![],
                 help: "Start the selected server.",
                 handler: Some(Self::start_server_handler),
+                ..Default::default()
             },
             Command {
                 name: "exit",
-                sub_commands: vec![],
-                options: vec![],
                 help: "Exit the program.",
                 handler: Some(Self::exit_handler),
+                ..Default::default()
             },
         ]
     }
