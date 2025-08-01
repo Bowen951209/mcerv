@@ -109,6 +109,8 @@ impl State {
         Ok(())
     }
 
+    /// Find all directories in the "instances" folder and put their names into `select` command's subcommands.
+    /// This is for server name auto completion.
     pub fn update_server_names(&mut self, cmd_manager: &mut CommandManager) -> anyhow::Result<()> {
         let dir_names = fs::read_dir("instances")?
             .filter_map(Result::ok)

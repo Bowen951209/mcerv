@@ -16,7 +16,7 @@ pub fn run() -> anyhow::Result<()> {
     let mut cmd_manager = CommandManager::new();
 
     let mut state = State::default();
-    state.update_server_names(&mut cmd_manager)?;
+    state.update_server_names(&mut cmd_manager)?; // Update server names for auto-completion
 
     let mut editor = command::create_editor(cmd_manager)?;
 
