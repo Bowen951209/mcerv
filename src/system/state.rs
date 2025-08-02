@@ -1,10 +1,21 @@
-use std::{error::Error, fmt::Display, fs, io::BufReader};
+use std::{
+    error::Error,
+    fmt::Display,
+    fs,
+    io::BufReader,
+    sync::{Arc, Mutex},
+};
 
+use rustyline::{Editor, ExternalPrinter, history::FileHistory};
 use zip::ZipArchive;
 
 use crate::{
-    command::{CommandManager, SubCommand},
-    system::{config::Config, jar_parser},
+    command::SubCommand,
+    system::{
+        command::{Command, CommandManager},
+        config::Config,
+        jar_parser,
+    },
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -25,13 +36,32 @@ pub struct Server {
     pub config: Config,
 }
 
-#[derive(Default)]
-pub struct State {
+pub struct State<EP: ExternalPrinter + Send + Sync + 'static> {
+    pub editor: Editor<CommandManager<EP>, FileHistory>,
     pub selected_server: Option<Server>,
     pub server_names: Vec<String>,
+    pub async_runtime: tokio::runtime::Runtime,
+    pub reqwest_client: reqwest::Client,
+    pub external_printer: Arc<Mutex<EP>>,
 }
 
-impl State {
+impl<EP: ExternalPrinter + Send + Sync + 'static> State<EP> {
+    pub fn command_manager(&self) -> &CommandManager<EP> {
+        self.editor.helper().unwrap()
+    }
+
+    pub fn command_manager_mut(&mut self) -> &mut CommandManager<EP> {
+        self.editor.helper_mut().unwrap()
+    }
+
+    pub fn commands(&self) -> &Vec<Command<EP>> {
+        &self.command_manager().commands
+    }
+
+    pub fn commands_mut(&mut self) -> &mut Vec<Command<EP>> {
+        &mut self.command_manager_mut().commands
+    }
+
     pub fn select_server(&mut self, server_name: String) -> anyhow::Result<()> {
         if !self.server_names.contains(&server_name) {
             anyhow::bail!(SelectServerError::ServerNotFound);
@@ -111,7 +141,7 @@ impl State {
 
     /// Find all directories in the "instances" folder and put their names into `select` command's subcommands.
     /// This is for server name auto completion.
-    pub fn update_server_names(&mut self, cmd_manager: &mut CommandManager) -> anyhow::Result<()> {
+    pub fn update_server_names(&mut self) -> anyhow::Result<()> {
         let dir_names = fs::read_dir("instances")?
             .filter_map(Result::ok)
             .filter(|entry| entry.path().is_dir())
@@ -127,23 +157,25 @@ impl State {
         self.server_names = dir_names;
 
         // Update server names to subcommands of "select" command
-        let select_command = cmd_manager
-            .commands
-            .iter_mut()
-            .find(|cmd| cmd.name == "select")
-            .unwrap();
-
-        select_command.sub_commands = self
+        let sub_commands = self
             .server_names
             .iter()
-            .map(|name| SubCommand {
+            .map(|name| SubCommand::<EP> {
                 name: name.clone(),
                 sub_commands: vec![],
                 help: "",
                 options: vec![],
                 handler: None,
             })
-            .collect();
+            .collect::<Vec<_>>();
+
+        let select_command = self
+            .commands_mut()
+            .iter_mut()
+            .find(|cmd| cmd.name == "select")
+            .unwrap();
+
+        select_command.sub_commands = sub_commands;
 
         Ok(())
     }
