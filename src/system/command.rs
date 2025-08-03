@@ -623,7 +623,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
     }
 
     fn set_max_memory_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
-        let max_memory = tokens.get(1).ok_or("No max memory provided.")?;
+        let max_memory = tokens.get(2).ok_or("No max memory provided.")?;
         let selected_server = state
             .selected_server
             .as_mut()
@@ -642,7 +642,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
     }
 
     fn set_min_memory_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
-        let min_memory = tokens.get(1).ok_or("No min memory provided.")?;
+        let min_memory = tokens.get(2).ok_or("No min memory provided.")?;
         let selected_server = state
             .selected_server
             .as_mut()
@@ -989,6 +989,9 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
             printer
                 .print("Server process has exited.\n".to_string())
                 .expect("Failed to print exit message");
+
+            // Reset the current directory
+            env::set_current_dir("../..").expect("Failed to reset current directory");
 
             // Reset the context to default after the server exits
             context_tx.send(crate::Context::Default).unwrap();
