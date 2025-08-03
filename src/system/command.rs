@@ -3,7 +3,7 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     process::{self, Stdio},
     time::SystemTime,
 };
@@ -954,25 +954,44 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         }
 
         let mut child = child_command
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
             .map_err(|e| format!("Failed to start server: {e}"))?;
+
+        let stdin = child.stdin.take().expect("Failed to get server's stdin");
+        let writer = BufWriter::new(stdin);
 
         let stdout = child.stdout.take().expect("Failed to get server's stdout");
         let reader = BufReader::new(stdout);
 
         // Thread that reads the server's output and prints
         let printer = state.external_printer.clone();
+        let context_tx = state.context_tx.clone();
         std::thread::spawn(move || {
+            // Send the context to indicate we are in the Minecraft server context
+            context_tx
+                .send(crate::Context::MinecraftServer(writer))
+                .unwrap();
+
             let mut printer = printer.lock().unwrap();
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        printer.print(l).expect("Failed to print line");
+                        printer
+                            .print(format!("{l}\n"))
+                            .expect("Failed to print line");
                     }
                     Err(e) => eprintln!("Failed to read line from server: {e}"),
                 }
             }
+
+            printer
+                .print("Server process has exited.\n".to_string())
+                .expect("Failed to print exit message");
+
+            // Reset the context to default after the server exits
+            context_tx.send(crate::Context::Default).unwrap();
         });
 
         Ok(())

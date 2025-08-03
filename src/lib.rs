@@ -2,6 +2,7 @@ mod network;
 mod system;
 
 use rustyline::error::ReadlineError;
+use std::io::Write;
 use std::{
     fs,
     sync::{Arc, Mutex},
@@ -9,7 +10,7 @@ use std::{
 
 use crate::system::{
     command::{self, CommandManager},
-    state::State,
+    state::{Context, State},
 };
 
 pub fn run() -> anyhow::Result<()> {
@@ -19,14 +20,7 @@ pub fn run() -> anyhow::Result<()> {
     let cmd_manager = CommandManager::default();
     let mut editor = command::create_editor(cmd_manager)?;
     let external_printer = Arc::new(Mutex::new(editor.create_external_printer()?));
-    let mut state = State {
-        editor,
-        async_runtime: tokio::runtime::Runtime::new()?,
-        reqwest_client: reqwest::Client::new(),
-        external_printer,
-        selected_server: None,
-        server_names: vec![],
-    };
+    let mut state = State::new(editor, external_printer);
 
     state.update_server_names()?; // Update server names for auto-completion
 
@@ -38,8 +32,20 @@ pub fn run() -> anyhow::Result<()> {
 
                 state.editor.add_history_entry(line)?;
 
-                CommandManager::execute(line, &mut state)
-                    .unwrap_or_else(|e| eprintln!("Error executing command: {e}"));
+                // If the context is updated, we will receive a message from the context channel.
+                // In default context, we execute the input command.
+                // In Minecraft server context, we write the command to the server's stdin.
+                let mut contex = state.context_rx.try_recv().unwrap_or(Context::Default);
+                match contex {
+                    Context::Default => {
+                        CommandManager::execute(line, &mut state)
+                            .unwrap_or_else(|e| eprintln!("Error executing command: {e}"));
+                    }
+                    Context::MinecraftServer(ref mut writer) => {
+                        writeln!(writer, "Running in Minecraft server context: {line}")
+                            .expect("Failed to write to stdout");
+                    }
+                }
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");

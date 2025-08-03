@@ -2,8 +2,9 @@ use std::{
     error::Error,
     fmt::Display,
     fs,
-    io::BufReader,
-    sync::{Arc, Mutex},
+    io::{BufReader, BufWriter},
+    process::ChildStdin,
+    sync::{Arc, Mutex, mpsc},
 };
 
 use rustyline::{Editor, ExternalPrinter, history::FileHistory};
@@ -17,6 +18,14 @@ use crate::{
         jar_parser,
     },
 };
+
+/// Represents the current operating context of multi-server.
+/// Starts as `Default`, switches to `MinecraftServer` when a server is running,
+/// and reverts to `Default` when the server process ends.
+pub enum Context {
+    Default,
+    MinecraftServer(BufWriter<ChildStdin>),
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum SelectServerError {
@@ -43,9 +52,29 @@ pub struct State<EP: ExternalPrinter + Send + Sync + 'static> {
     pub async_runtime: tokio::runtime::Runtime,
     pub reqwest_client: reqwest::Client,
     pub external_printer: Arc<Mutex<EP>>,
+    pub context_tx: mpsc::Sender<Context>,
+    pub context_rx: mpsc::Receiver<Context>,
 }
 
 impl<EP: ExternalPrinter + Send + Sync + 'static> State<EP> {
+    pub fn new(
+        editor: Editor<CommandManager<EP>, FileHistory>,
+        external_printer: Arc<Mutex<EP>>,
+    ) -> Self {
+        let (context_tx, context_rx) = mpsc::channel();
+
+        Self {
+            editor,
+            selected_server: None,
+            server_names: vec![],
+            async_runtime: tokio::runtime::Runtime::new().expect("Failed to create async runtime"),
+            reqwest_client: reqwest::Client::new(),
+            external_printer,
+            context_tx,
+            context_rx,
+        }
+    }
+
     pub fn command_manager(&self) -> &CommandManager<EP> {
         self.editor.helper().unwrap()
     }
