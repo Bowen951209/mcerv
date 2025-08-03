@@ -24,6 +24,8 @@ pub fn run() -> anyhow::Result<()> {
 
     state.update_server_names()?; // Update server names for auto-completion
 
+    let mut context = Context::Default;
+
     loop {
         let readline = state.editor.readline(">> ");
         match readline {
@@ -35,15 +37,18 @@ pub fn run() -> anyhow::Result<()> {
                 // If the context is updated, we will receive a message from the context channel.
                 // In default context, we execute the input command.
                 // In Minecraft server context, we write the command to the server's stdin.
-                let mut contex = state.context_rx.try_recv().unwrap_or(Context::Default);
-                match contex {
+                if let Ok(ctx) = state.context_rx.try_recv() {
+                    context = ctx;
+                }
+
+                match context {
                     Context::Default => {
                         CommandManager::execute(line, &mut state)
                             .unwrap_or_else(|e| eprintln!("Error executing command: {e}"));
                     }
                     Context::MinecraftServer(ref mut writer) => {
-                        writeln!(writer, "Running in Minecraft server context: {line}")
-                            .expect("Failed to write to stdout");
+                        writeln!(writer, "{line}").expect("Failed to write to stdout");
+                        writer.flush().expect("Failed to flush to Minecraft server");
                     }
                 }
             }

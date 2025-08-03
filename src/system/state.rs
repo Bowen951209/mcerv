@@ -22,6 +22,7 @@ use crate::{
 /// Represents the current operating context of multi-server.
 /// Starts as `Default`, switches to `MinecraftServer` when a server is running,
 /// and reverts to `Default` when the server process ends.
+#[derive(Debug)]
 pub enum Context {
     Default,
     MinecraftServer(BufWriter<ChildStdin>),
