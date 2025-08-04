@@ -3,6 +3,7 @@ mod system;
 
 use rustyline::error::ReadlineError;
 use std::io::Write;
+use std::sync::mpsc;
 use std::{
     fs,
     sync::{Arc, Mutex},
@@ -54,10 +55,12 @@ pub fn run() -> anyhow::Result<()> {
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
+                stop_if_minecraft_server(&mut context, state.context_rx)?;
                 break;
             }
             Err(ReadlineError::Eof) => {
                 println!("CTRL-D");
+                stop_if_minecraft_server(&mut context, state.context_rx)?;
                 break;
             }
             Err(e) => {
@@ -66,6 +69,25 @@ pub fn run() -> anyhow::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+/// Stops the Minecraft server if the current context is a Minecraft server.
+fn stop_if_minecraft_server(
+    context: &mut Context,
+    context_rx: mpsc::Receiver<Context>,
+) -> Result<(), mpsc::RecvError> {
+    if let Context::MinecraftServer(writer) = context {
+        writeln!(writer, "stop").expect("Failed to write 'stop' command to Minecraft server");
+        writer
+            .flush()
+            .expect("Failed to flush 'stop' command to Minecraft server");
+    }
+
+    // Wait for the server to stop. This allows us to see the server's shutdown messages.
+    // We will receive a context update when the server stops.
+    context_rx.recv()?;
 
     Ok(())
 }
