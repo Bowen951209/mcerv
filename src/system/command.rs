@@ -968,12 +968,13 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         // Thread that reads the server's output and prints
         let printer = state.external_printer.clone();
         let context_tx = state.context_tx.clone();
-        std::thread::spawn(move || {
-            // Send the context to indicate we are in the Minecraft server context
-            context_tx
-                .send(crate::Context::MinecraftServer(writer))
-                .unwrap();
 
+        // Send the context to indicate we are in the Minecraft server context
+        context_tx
+            .send(crate::Context::MinecraftServer(writer))
+            .unwrap();
+
+        std::thread::spawn(move || {
             let mut printer = printer.lock().unwrap();
             for line in reader.lines() {
                 match line {
