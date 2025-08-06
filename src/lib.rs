@@ -1,13 +1,11 @@
 mod network;
 mod system;
 
+use rustyline::ExternalPrinter;
 use rustyline::error::ReadlineError;
+use std::fs;
 use std::io::Write;
 use std::sync::mpsc;
-use std::{
-    fs,
-    sync::{Arc, Mutex},
-};
 
 use crate::system::{
     command::{self, CommandManager},
@@ -20,10 +18,14 @@ pub fn run() -> anyhow::Result<()> {
 
     let cmd_manager = CommandManager::default();
     let mut editor = command::create_editor(cmd_manager)?;
-    let external_printer = Arc::new(Mutex::new(editor.create_external_printer()?));
-    let mut state = State::new(editor, external_printer);
+    let (print_tx, print_rx) = mpsc::channel();
+    let external_printer = editor.create_external_printer()?;
+    let mut state = State::new(editor, print_tx);
 
     state.update_server_names()?; // Update server names for auto-completion
+
+    // Start the print thread to handle printing messages
+    start_print_thread(print_rx, external_printer);
 
     let mut context = Context::Default;
 
@@ -97,4 +99,16 @@ fn stop_if_minecraft_server(
     context_rx.recv()?;
 
     Ok(())
+}
+
+/// Starts a dedicated thread to handle printing messages using `ExternalPrinter`.
+fn start_print_thread(
+    print_rx: mpsc::Receiver<String>,
+    mut external_printer: impl ExternalPrinter + Send + Sync + 'static,
+) {
+    std::thread::spawn(move || {
+        while let Ok(line) = print_rx.recv() {
+            external_printer.print(line).expect("Failed to print line");
+        }
+    });
 }

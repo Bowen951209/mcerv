@@ -4,10 +4,10 @@ use std::{
     fs,
     io::{BufReader, BufWriter},
     process::ChildStdin,
-    sync::{Arc, Mutex, mpsc},
+    sync::mpsc,
 };
 
-use rustyline::{Editor, ExternalPrinter, history::FileHistory};
+use rustyline::{Editor, history::FileHistory};
 use zip::ZipArchive;
 
 use crate::{
@@ -46,21 +46,21 @@ pub struct Server {
     pub config: Config,
 }
 
-pub struct State<EP: ExternalPrinter + Send + Sync + 'static> {
-    pub editor: Editor<CommandManager<EP>, FileHistory>,
+pub struct State {
+    pub editor: Editor<CommandManager, FileHistory>,
     pub selected_server: Option<Server>,
     pub server_names: Vec<String>,
     pub async_runtime: tokio::runtime::Runtime,
     pub reqwest_client: reqwest::Client,
-    pub external_printer: Arc<Mutex<EP>>,
+    pub print_tx: mpsc::Sender<String>,
     pub context_tx: mpsc::Sender<Context>,
     pub context_rx: mpsc::Receiver<Context>,
 }
 
-impl<EP: ExternalPrinter + Send + Sync + 'static> State<EP> {
+impl State {
     pub fn new(
-        editor: Editor<CommandManager<EP>, FileHistory>,
-        external_printer: Arc<Mutex<EP>>,
+        editor: Editor<CommandManager, FileHistory>,
+        print_tx: mpsc::Sender<String>,
     ) -> Self {
         let (context_tx, context_rx) = mpsc::channel();
 
@@ -70,25 +70,25 @@ impl<EP: ExternalPrinter + Send + Sync + 'static> State<EP> {
             server_names: vec![],
             async_runtime: tokio::runtime::Runtime::new().expect("Failed to create async runtime"),
             reqwest_client: reqwest::Client::new(),
-            external_printer,
+            print_tx,
             context_tx,
             context_rx,
         }
     }
 
-    pub fn command_manager(&self) -> &CommandManager<EP> {
+    pub fn command_manager(&self) -> &CommandManager {
         self.editor.helper().unwrap()
     }
 
-    pub fn command_manager_mut(&mut self) -> &mut CommandManager<EP> {
+    pub fn command_manager_mut(&mut self) -> &mut CommandManager {
         self.editor.helper_mut().unwrap()
     }
 
-    pub fn commands(&self) -> &Vec<Command<EP>> {
+    pub fn commands(&self) -> &Vec<Command> {
         &self.command_manager().commands
     }
 
-    pub fn commands_mut(&mut self) -> &mut Vec<Command<EP>> {
+    pub fn commands_mut(&mut self) -> &mut Vec<Command> {
         &mut self.command_manager_mut().commands
     }
 
@@ -190,7 +190,7 @@ impl<EP: ExternalPrinter + Send + Sync + 'static> State<EP> {
         let sub_commands = self
             .server_names
             .iter()
-            .map(|name| SubCommand::<EP> {
+            .map(|name| SubCommand {
                 name: name.clone(),
                 sub_commands: vec![],
                 help: "",

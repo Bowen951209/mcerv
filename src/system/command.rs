@@ -9,7 +9,7 @@ use std::{
 };
 
 use rustyline::{
-    Context, Editor, ExternalPrinter, Helper,
+    Context, Editor, Helper,
     completion::{Candidate, Completer},
     config::Configurer,
     error::ReadlineError,
@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-type Handler<P> = fn(&mut State<P>, &[String]) -> Result<(), String>;
+type Handler = fn(&mut State, &[String]) -> Result<(), String>;
 
 #[derive(Copy, Clone, Debug)]
 enum OptionError {
@@ -51,47 +51,25 @@ impl Display for OptionError {
 
 impl Error for OptionError {}
 
-pub struct Command<P: ExternalPrinter + Send + Sync + 'static> {
+#[derive(Default)]
+pub struct Command {
     pub name: &'static str,
-    pub sub_commands: Vec<SubCommand<P>>,
+    pub sub_commands: Vec<SubCommand>,
     pub options: Vec<CommandOption>,
     pub help: &'static str,
-    pub handler: Option<Handler<P>>,
+    pub handler: Option<Handler>,
 }
 
-impl<P: ExternalPrinter + Send + Sync + 'static> Default for Command<P> {
-    fn default() -> Self {
-        Command {
-            name: "",
-            sub_commands: vec![],
-            options: vec![],
-            help: "",
-            handler: None,
-        }
-    }
-}
-
-pub struct SubCommand<P: ExternalPrinter + Send + Sync + 'static> {
+#[derive(Default)]
+pub struct SubCommand {
     // This is not a &'static str because we will define subcommands
     // at runtime. For example, the command `select` will have a variable
     // list of server names as subcommands for auto completion.
     pub name: String,
-    pub sub_commands: Vec<SubCommand<P>>,
+    pub sub_commands: Vec<SubCommand>,
     pub options: Vec<CommandOption>,
     pub help: &'static str,
-    pub handler: Option<Handler<P>>,
-}
-
-impl<P: ExternalPrinter + Send + Sync + 'static> Default for SubCommand<P> {
-    fn default() -> Self {
-        SubCommand {
-            name: String::new(),
-            sub_commands: vec![],
-            options: vec![],
-            help: "",
-            handler: None,
-        }
-    }
+    pub handler: Option<Handler>,
 }
 
 pub struct CommandOption {
@@ -99,12 +77,12 @@ pub struct CommandOption {
     pub help: &'static str,
 }
 
-pub struct CommandManager<P: ExternalPrinter + Send + Sync + 'static> {
-    pub commands: Vec<Command<P>>,
+pub struct CommandManager {
+    pub commands: Vec<Command>,
 }
 
-impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
-    fn create_commands() -> Vec<Command<P>> {
+impl CommandManager {
+    fn create_commands() -> Vec<Command> {
         vec![
             Command {
                 name: "list",
@@ -324,9 +302,9 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
     }
 
     fn find_deepest_subcommand<'a>(
-        subcommands: &'a [SubCommand<P>],
+        subcommands: &'a [SubCommand],
         tokens: &[String],
-    ) -> Option<&'a SubCommand<P>> {
+    ) -> Option<&'a SubCommand> {
         let mut current = subcommands
             .iter()
             .find(|s| tokens.contains(&s.name.to_string()))?;
@@ -342,7 +320,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Some(current)
     }
 
-    fn list_servers_handler(state: &mut State<P>, _: &[String]) -> anyhow::Result<(), String> {
+    fn list_servers_handler(state: &mut State, _: &[String]) -> anyhow::Result<(), String> {
         if state.server_names.is_empty() {
             println!("Server list is empty.");
             return Ok(());
@@ -358,7 +336,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
     /// List installed mods in the selected server's mods directory.
     /// Will also check for updates on Modrinth.
     /// If there are updates available, will ask the user if they want to update.
-    fn list_mods_handler(state: &mut State<P>, tokens: &[String]) -> anyhow::Result<(), String> {
+    fn list_mods_handler(state: &mut State, tokens: &[String]) -> anyhow::Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -461,10 +439,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn search_server_versions_handler(
-        state: &mut State<P>,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn search_server_versions_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let start = SystemTime::now();
 
         let mode = match (
@@ -492,7 +467,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn search_mods_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn search_mods_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -552,7 +527,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn search_mod_versions_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn search_mod_versions_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -589,7 +564,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn select_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn select_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let server_name = tokens
             .get(1)
             .ok_or_else(|| "No server name provided.".to_string())?;
@@ -611,7 +586,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn selected_handler(state: &mut State<P>, _: &[String]) -> Result<(), String> {
+    fn selected_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let server_name = &state
             .selected_server
             .as_ref()
@@ -622,7 +597,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn set_max_memory_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn set_max_memory_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let max_memory = tokens.get(2).ok_or("No max memory provided.")?;
         let selected_server = state
             .selected_server
@@ -641,7 +616,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
             .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
-    fn set_min_memory_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn set_min_memory_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let min_memory = tokens.get(2).ok_or("No min memory provided.")?;
         let selected_server = state
             .selected_server
@@ -660,7 +635,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
             .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
-    fn set_java_home_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn set_java_home_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let java_home = tokens.get(2).ok_or("No JAVA_HOME provided.")?;
 
         // Check if the path exists
@@ -681,7 +656,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
             .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
-    fn add_server_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn add_server_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let server_name = match tokens.get(2) {
             Some(s) if !s.starts_with("-") => s,
             _ => return Err("No server name provided.".to_string()),
@@ -730,7 +705,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn add_mod_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn add_mod_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let version_id = match tokens.get(2) {
             Some(id) if !id.starts_with("-") => id,
             _ => return Err("No mod version ID provided.".to_string()),
@@ -756,7 +731,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn generate_start_script_handler(state: &mut State<P>, _: &[String]) -> Result<(), String> {
+    fn generate_start_script_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -785,7 +760,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn update_server_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn update_server_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_mut()
@@ -840,7 +815,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn check_mods_support_handler(state: &mut State<P>, tokens: &[String]) -> Result<(), String> {
+    fn check_mods_support_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -921,7 +896,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
     }
 
     /// Start the selected server and exit with code 0
-    fn start_server_handler(state: &mut State<P>, _: &[String]) -> Result<(), String> {
+    fn start_server_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -965,8 +940,8 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         let stdout = child.stdout.take().expect("Failed to get server's stdout");
         let reader = BufReader::new(stdout);
 
-        // Thread that reads the server's output and prints
-        let printer = state.external_printer.clone();
+        // Thread that reads the server's output and send to print_tx.
+        let print_tx = state.print_tx.clone();
         let context_tx = state.context_tx.clone();
 
         // Send the context to indicate we are in the Minecraft server context
@@ -975,21 +950,20 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
             .unwrap();
 
         std::thread::spawn(move || {
-            let mut printer = printer.lock().unwrap();
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        printer
-                            .print(format!("{l}\n"))
-                            .expect("Failed to print line");
+                        print_tx
+                            .send(format!("{l}\n"))
+                            .expect("Failed to send line");
                     }
                     Err(e) => eprintln!("Failed to read line from server: {e}"),
                 }
             }
 
-            printer
-                .print("Server process has exited.\n".to_string())
-                .expect("Failed to print exit message");
+            print_tx
+                .send("Server process has exited.\n".to_string())
+                .expect("Failed to send exit message");
 
             // Reset the current directory
             env::set_current_dir("../..").expect("Failed to reset current directory");
@@ -1001,7 +975,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn accept_eula_handler(state: &mut State<P>, _: &[String]) -> Result<(), String> {
+    fn accept_eula_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let eula_path = format!(
             "instances/{}/eula.txt",
             state
@@ -1024,11 +998,11 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
         Ok(())
     }
 
-    fn exit_handler(_: &mut State<P>, _: &[String]) -> anyhow::Result<(), String> {
+    fn exit_handler(_: &mut State, _: &[String]) -> anyhow::Result<(), String> {
         process::exit(0)
     }
 
-    pub fn execute(line: &str, state: &mut State<P>) -> Result<(), String> {
+    pub fn execute(line: &str, state: &mut State) -> Result<(), String> {
         if line.trim().is_empty() {
             return Ok(());
         }
@@ -1053,7 +1027,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
     }
 
     fn suggest_subcommands(
-        subs: &[SubCommand<P>],
+        subs: &[SubCommand],
         last_token: Option<&String>,
         input: &str,
     ) -> Vec<SmartCandidate> {
@@ -1154,13 +1128,13 @@ impl<P: ExternalPrinter + Send + Sync + 'static> CommandManager<P> {
     }
 }
 
-impl<P: ExternalPrinter + Send + Sync + 'static> Helper for CommandManager<P> {}
-impl<P: ExternalPrinter + Send + Sync + 'static> Hinter for CommandManager<P> {
+impl Helper for CommandManager {}
+impl Hinter for CommandManager {
     type Hint = String;
 }
-impl<P: ExternalPrinter + Send + Sync + 'static> Highlighter for CommandManager<P> {}
-impl<P: ExternalPrinter + Send + Sync + 'static> Validator for CommandManager<P> {}
-impl<P: ExternalPrinter + Send + Sync + 'static> Completer for CommandManager<P> {
+impl Highlighter for CommandManager {}
+impl Validator for CommandManager {}
+impl Completer for CommandManager {
     type Candidate = SmartCandidate;
 
     fn complete(
@@ -1228,7 +1202,7 @@ impl<P: ExternalPrinter + Send + Sync + 'static> Completer for CommandManager<P>
         }
     }
 }
-impl<P: ExternalPrinter + Send + Sync + 'static> Default for CommandManager<P> {
+impl Default for CommandManager {
     fn default() -> Self {
         Self {
             commands: Self::create_commands(),
@@ -1251,9 +1225,9 @@ impl Candidate for SmartCandidate {
     }
 }
 
-pub fn create_editor<P: ExternalPrinter + Send + Sync + 'static>(
-    helper: CommandManager<P>,
-) -> Result<Editor<CommandManager<P>, FileHistory>, ReadlineError> {
+pub fn create_editor(
+    helper: CommandManager,
+) -> Result<Editor<CommandManager, FileHistory>, ReadlineError> {
     let mut editor = Editor::new()?;
     editor.set_completion_show_all_if_ambiguous(true);
     editor.set_helper(Some(helper));
@@ -1268,7 +1242,7 @@ mod tests {
 
     #[test]
     fn test_completer() {
-        let cmd_manager = CommandManager::<DummyExternalPrinter> {
+        let cmd_manager = CommandManager {
             commands: vec![
                 Command {
                     name: "cmd1",
@@ -1328,7 +1302,7 @@ mod tests {
     }
 
     fn assert_suggestions(
-        completer: &CommandManager<impl ExternalPrinter + Send + Sync + 'static>,
+        completer: &CommandManager,
         ctx: &Context,
         line: &str,
         expected: &[String],
@@ -1342,12 +1316,5 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(expected.iter().all(|ex| suggestions.contains(&ex)));
-    }
-
-    struct DummyExternalPrinter;
-    impl ExternalPrinter for DummyExternalPrinter {
-        fn print(&mut self, _msg: String) -> rustyline::Result<()> {
-            Ok(())
-        }
     }
 }
