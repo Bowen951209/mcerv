@@ -30,20 +30,14 @@ pub fn run() -> anyhow::Result<()> {
     let mut context = Context::Default;
 
     loop {
+        let readline = state.editor.readline("multi-server> ");
+
         // If the context is updated, we will receive a message from the context channel.
         // In default context, we execute the input command.
         // In Minecraft server context, we write the command to the server's stdin.
         if let Ok(ctx) = state.context_rx.try_recv() {
             context = ctx;
         }
-
-        let readline = match context {
-            Context::Default => state.editor.readline("multi-server> "),
-            Context::MinecraftServer(_) => {
-                let selected_server_name = &state.selected_server.as_ref().unwrap().name;
-                state.editor.readline(&format!("{selected_server_name}> "))
-            }
-        };
 
         match readline {
             Ok(line) => {
