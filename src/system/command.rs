@@ -3,8 +3,8 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
-    io::Write,
-    process::{self},
+    io::{BufRead, BufReader, BufWriter, Write},
+    process::{self, Stdio},
     time::SystemTime,
 };
 
@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-type Handler = fn(&mut CommandManager, &mut State, &[String]) -> Result<(), String>;
+type Handler = fn(&mut State, &[String]) -> Result<(), String>;
 
 #[derive(Copy, Clone, Debug)]
 enum OptionError {
@@ -79,19 +79,9 @@ pub struct CommandOption {
 
 pub struct CommandManager {
     pub commands: Vec<Command>,
-    pub async_runtime: tokio::runtime::Runtime,
-    pub reqwest_client: reqwest::Client,
 }
 
 impl CommandManager {
-    pub fn new() -> Self {
-        CommandManager {
-            commands: Self::create_commands(),
-            async_runtime: tokio::runtime::Runtime::new().unwrap(),
-            reqwest_client: reqwest::Client::new(),
-        }
-    }
-
     fn create_commands() -> Vec<Command> {
         vec![
             Command {
@@ -330,11 +320,7 @@ impl CommandManager {
         Some(current)
     }
 
-    fn list_servers_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        _: &[String],
-    ) -> anyhow::Result<(), String> {
+    fn list_servers_handler(state: &mut State, _: &[String]) -> anyhow::Result<(), String> {
         if state.server_names.is_empty() {
             println!("Server list is empty.");
             return Ok(());
@@ -350,11 +336,7 @@ impl CommandManager {
     /// List installed mods in the selected server's mods directory.
     /// Will also check for updates on Modrinth.
     /// If there are updates available, will ask the user if they want to update.
-    fn list_mods_handler(
-        cmd_manager: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> anyhow::Result<(), String> {
+    fn list_mods_handler(state: &mut State, tokens: &[String]) -> anyhow::Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -382,14 +364,10 @@ impl CommandManager {
 
         let game_versions = [selected_server.config.game_version.as_str()];
 
-        let (latest_versions_res, old_versions_res) = cmd_manager.async_runtime.block_on(async {
+        let (latest_versions_res, old_versions_res) = state.async_runtime.block_on(async {
             tokio::join!(
-                modrinth::get_latest_versions(
-                    &cmd_manager.reqwest_client,
-                    &jar_hashes,
-                    &game_versions
-                ),
-                modrinth::get_versions(&cmd_manager.reqwest_client, &jar_hashes,)
+                modrinth::get_latest_versions(&state.reqwest_client, &jar_hashes, &game_versions),
+                modrinth::get_versions(&state.reqwest_client, &jar_hashes,)
             )
         });
 
@@ -399,10 +377,10 @@ impl CommandManager {
         let old_versions =
             old_versions_res.map_err(|e| format!("Failed to get old versions: {e}"))?;
 
-        let slug_map = cmd_manager
+        let slug_map = state
             .async_runtime
             .block_on(modrinth::get_project_slug_map(
-                &cmd_manager.reqwest_client,
+                &state.reqwest_client,
                 old_versions.iter().map(|v| v.project_id.as_str()),
             ))
             .map_err(|e| format!("Failed to get project slugs: {e}"))?;
@@ -442,12 +420,9 @@ impl CommandManager {
                 (url, save_path)
             });
 
-            cmd_manager
+            state
                 .async_runtime
-                .block_on(network::download_files(
-                    &cmd_manager.reqwest_client,
-                    downloads,
-                ))
+                .block_on(network::download_files(&state.reqwest_client, downloads))
                 .map_err(|e| format!("Failed to download updates: {e}"))?;
 
             // Delete old jar files
@@ -464,11 +439,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn search_server_versions_handler(
-        cmd_manager: &mut CommandManager,
-        _: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn search_server_versions_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let start = SystemTime::now();
 
         let mode = match (
@@ -483,12 +454,9 @@ impl CommandManager {
             (true, _) => PrintVersionMode::StableOnly,
         };
 
-        cmd_manager
+        state
             .async_runtime
-            .block_on(fabric_meta::print_versions(
-                &cmd_manager.reqwest_client,
-                mode,
-            ))
+            .block_on(fabric_meta::print_versions(&state.reqwest_client, mode))
             .map_err(|e| format!("print versions failed. {e}"))?;
 
         let end = SystemTime::now();
@@ -499,11 +467,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn search_mods_handler(
-        cmd_manager: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn search_mods_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -547,10 +511,10 @@ impl CommandManager {
             }
         };
 
-        let response = cmd_manager
+        let response = state
             .async_runtime
             .block_on(modrinth::search(
-                &cmd_manager.reqwest_client,
+                &state.reqwest_client,
                 query,
                 &facets,
                 index,
@@ -563,11 +527,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn search_mod_versions_handler(
-        cmd_manager: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn search_mod_versions_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -590,10 +550,10 @@ impl CommandManager {
             }
         };
 
-        let response = cmd_manager
+        let response = state
             .async_runtime
             .block_on(modrinth::get_project_versions(
-                &cmd_manager.reqwest_client,
+                &state.reqwest_client,
                 project_slug,
                 &[game_version],
                 featured,
@@ -604,11 +564,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn select_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn select_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let server_name = tokens
             .get(1)
             .ok_or_else(|| "No server name provided.".to_string())?;
@@ -630,11 +586,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn selected_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        _: &[String],
-    ) -> Result<(), String> {
+    fn selected_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let server_name = &state
             .selected_server
             .as_ref()
@@ -645,12 +597,8 @@ impl CommandManager {
         Ok(())
     }
 
-    fn set_max_memory_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
-        let max_memory = tokens.get(1).ok_or("No max memory provided.")?;
+    fn set_max_memory_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
+        let max_memory = tokens.get(2).ok_or("No max memory provided.")?;
         let selected_server = state
             .selected_server
             .as_mut()
@@ -668,12 +616,8 @@ impl CommandManager {
             .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
-    fn set_min_memory_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
-        let min_memory = tokens.get(1).ok_or("No min memory provided.")?;
+    fn set_min_memory_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
+        let min_memory = tokens.get(2).ok_or("No min memory provided.")?;
         let selected_server = state
             .selected_server
             .as_mut()
@@ -691,11 +635,7 @@ impl CommandManager {
             .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
-    fn set_java_home_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn set_java_home_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let java_home = tokens.get(2).ok_or("No JAVA_HOME provided.")?;
 
         // Check if the path exists
@@ -716,11 +656,7 @@ impl CommandManager {
             .map_err(|e| format!("Failed to save config. Error: {e}"))
     }
 
-    fn add_server_handler(
-        cmd_manager: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn add_server_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let server_name = match tokens.get(2) {
             Some(s) if !s.starts_with("-") => s,
             _ => return Err("No server name provided.".to_string()),
@@ -731,16 +667,16 @@ impl CommandManager {
         let start_time = SystemTime::now();
 
         println!("Fetching versions...");
-        let (game_version, loader_version, installer_version) = cmd_manager
+        let (game_version, loader_version, installer_version) = state
             .async_runtime
-            .block_on(Self::get_versions(&cmd_manager.reqwest_client, tokens))
+            .block_on(Self::get_versions(&state.reqwest_client, tokens))
             .map_err(|e| format!("Failed to get versions: {e}"))?;
 
         println!("Downloading server jar...");
-        let filename = cmd_manager
+        let filename = state
             .async_runtime
             .block_on(fabric_meta::download_server(
-                &cmd_manager.reqwest_client,
+                &state.reqwest_client,
                 &game_version,
                 &loader_version,
                 &installer_version,
@@ -762,18 +698,14 @@ impl CommandManager {
         println!("Config created and saved");
 
         state
-            .update_server_names(cmd_manager)
+            .update_server_names()
             .map_err(|e| format!("Failed to update server names. Error: {e}"))?;
 
         println!("Server added: {server_name}");
         Ok(())
     }
 
-    fn add_mod_handler(
-        cmd_manager: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn add_mod_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let version_id = match tokens.get(2) {
             Some(id) if !id.starts_with("-") => id,
             _ => return Err("No mod version ID provided.".to_string()),
@@ -786,10 +718,10 @@ impl CommandManager {
 
         println!("Downloading mod version {version_id}...");
 
-        let file_name = cmd_manager
+        let file_name = state
             .async_runtime
             .block_on(modrinth::download_version(
-                &cmd_manager.reqwest_client,
+                &state.reqwest_client,
                 version_id,
                 format!("instances/{}/mods", selected_server.name),
             ))
@@ -799,11 +731,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn generate_start_script_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        _: &[String],
-    ) -> Result<(), String> {
+    fn generate_start_script_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -832,11 +760,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn update_server_handler(
-        cmd_manager: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn update_server_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_mut()
@@ -848,17 +772,17 @@ impl CommandManager {
 
         println!("Fetching versions...");
 
-        let (game_version, loader_version, installer_version) = cmd_manager
+        let (game_version, loader_version, installer_version) = state
             .async_runtime
-            .block_on(Self::get_versions(&cmd_manager.reqwest_client, tokens))
+            .block_on(Self::get_versions(&state.reqwest_client, tokens))
             .map_err(|e| format!("Failed to get versions: {e}"))?;
 
         println!("Downloading new server jar...");
 
-        let file_name = cmd_manager
+        let file_name = state
             .async_runtime
             .block_on(fabric_meta::download_server(
-                &cmd_manager.reqwest_client,
+                &state.reqwest_client,
                 &game_version,
                 &loader_version,
                 &installer_version,
@@ -891,11 +815,7 @@ impl CommandManager {
         Ok(())
     }
 
-    fn check_mods_support_handler(
-        cmd_manager: &mut CommandManager,
-        state: &mut State,
-        tokens: &[String],
-    ) -> Result<(), String> {
+    fn check_mods_support_handler(state: &mut State, tokens: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -917,18 +837,15 @@ impl CommandManager {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mod_versions = cmd_manager
+        let mod_versions = state
             .async_runtime
-            .block_on(modrinth::get_versions(
-                &cmd_manager.reqwest_client,
-                &jar_hashes,
-            ))
+            .block_on(modrinth::get_versions(&state.reqwest_client, &jar_hashes))
             .map_err(|e| format!("Failed to get mod versions: {e}"))?;
 
-        let slug_map = cmd_manager
+        let slug_map = state
             .async_runtime
             .block_on(modrinth::get_project_slug_map(
-                &cmd_manager.reqwest_client,
+                &state.reqwest_client,
                 mod_versions.iter().map(|v| v.project_id.as_str()),
             ))
             .map_err(|e| format!("Failed to get project slugs: {e}"))?;
@@ -936,7 +853,7 @@ impl CommandManager {
         // Prepare all futures for concurrent execution
         let futures = mod_versions.iter().map(|version| {
             let project_slug = slug_map.get(&version.project_id).unwrap();
-            let client = &cmd_manager.reqwest_client;
+            let client = &state.reqwest_client;
             async move {
                 let response =
                     modrinth::get_project_versions(client, project_slug, &[game_version], None)
@@ -946,7 +863,7 @@ impl CommandManager {
         });
 
         // Run all futures concurrently
-        let results = cmd_manager
+        let results = state
             .async_runtime
             .block_on(async { futures::future::join_all(futures).await });
 
@@ -979,11 +896,7 @@ impl CommandManager {
     }
 
     /// Start the selected server and exit with code 0
-    fn start_server_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        _: &[String],
-    ) -> Result<(), String> {
+    fn start_server_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let selected_server = state
             .selected_server
             .as_ref()
@@ -1016,21 +929,53 @@ impl CommandManager {
         }
 
         let mut child = child_command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .map_err(|e| format!("Failed to start server: {e}"))?;
 
-        // This wait is necessary. Without this, the cursor in the termminal will have some glitches
-        child.wait().unwrap();
+        let stdin = child.stdin.take().expect("Failed to get server's stdin");
+        let writer = BufWriter::new(stdin);
 
-        println!("Exiting multi-server.");
-        process::exit(0);
+        let stdout = child.stdout.take().expect("Failed to get server's stdout");
+        let reader = BufReader::new(stdout);
+
+        // Thread that reads the server's output and send to print_tx.
+        let print_tx = state.print_tx.clone();
+        let context_tx = state.context_tx.clone();
+
+        // Send the context to indicate we are in the Minecraft server context
+        context_tx
+            .send(crate::Context::MinecraftServer(writer))
+            .unwrap();
+
+        std::thread::spawn(move || {
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        print_tx
+                            .send(format!("{l}\n"))
+                            .expect("Failed to send line");
+                    }
+                    Err(e) => eprintln!("Failed to read line from server: {e}"),
+                }
+            }
+
+            print_tx
+                .send("Server process has exited.\n".to_string())
+                .expect("Failed to send exit message");
+
+            // Reset the current directory
+            env::set_current_dir("../..").expect("Failed to reset current directory");
+
+            // Reset the context to default after the server exits
+            context_tx.send(crate::Context::Default).unwrap();
+        });
+
+        Ok(())
     }
 
-    fn accept_eula_handler(
-        _: &mut CommandManager,
-        state: &mut State,
-        _: &[String],
-    ) -> Result<(), String> {
+    fn accept_eula_handler(state: &mut State, _: &[String]) -> Result<(), String> {
         let eula_path = format!(
             "instances/{}/eula.txt",
             state
@@ -1053,23 +998,19 @@ impl CommandManager {
         Ok(())
     }
 
-    fn exit_handler(
-        _: &mut CommandManager,
-        _: &mut State,
-        _: &[String],
-    ) -> anyhow::Result<(), String> {
+    fn exit_handler(_: &mut State, _: &[String]) -> anyhow::Result<(), String> {
         process::exit(0)
     }
 
-    pub fn execute(&mut self, line: &str, state: &mut State) -> Result<(), String> {
+    pub fn execute(line: &str, state: &mut State) -> Result<(), String> {
         if line.trim().is_empty() {
             return Ok(());
         }
 
         let tokens = shlex::split(line).ok_or("Failed to parse command".to_string())?;
 
-        let command = self
-            .commands
+        let command = state
+            .commands()
             .iter()
             .find(|cmd| cmd.name == tokens[0])
             .ok_or(format!("Unknown command: {}", tokens[0]))?;
@@ -1082,7 +1023,7 @@ impl CommandManager {
         }
         .ok_or("Command does not have a handler.".to_string())?;
 
-        handler(self, state, &tokens)
+        handler(state, &tokens)
     }
 
     fn suggest_subcommands(
@@ -1261,6 +1202,13 @@ impl Completer for CommandManager {
         }
     }
 }
+impl Default for CommandManager {
+    fn default() -> Self {
+        Self {
+            commands: Self::create_commands(),
+        }
+    }
+}
 
 pub struct SmartCandidate {
     word: String,
@@ -1293,8 +1241,8 @@ mod tests {
     use rustyline::history::History;
 
     #[test]
-    fn test_smart_completer() {
-        let completer = CommandManager {
+    fn test_completer() {
+        let cmd_manager = CommandManager {
             commands: vec![
                 Command {
                     name: "cmd1",
@@ -1320,8 +1268,6 @@ mod tests {
                     handler: None,
                 },
             ],
-            async_runtime: tokio::runtime::Runtime::new().unwrap(),
-            reqwest_client: reqwest::Client::new(),
         };
 
         let file_history = FileHistory::new();
@@ -1329,20 +1275,30 @@ mod tests {
         let ctx = Context::new(history_ref);
 
         assert_suggestions(
-            &completer,
+            &cmd_manager,
             &ctx,
             "cmd",
             &[String::from("cmd1"), String::from("cmd2")],
         );
 
-        assert_suggestions(&completer, &ctx, "cmd1 ", &[String::from("sub1")]);
-        assert_suggestions(&completer, &ctx, "cmd1 s", &[String::from("sub1")]);
+        assert_suggestions(&cmd_manager, &ctx, "cmd1 ", &[String::from("sub1")]);
+        assert_suggestions(&cmd_manager, &ctx, "cmd1 s", &[String::from("sub1")]);
 
-        assert_suggestions(&completer, &ctx, "cmd1 sub1 ", &[String::from("--opt1")]);
-        assert_suggestions(&completer, &ctx, "cmd1 sub1 -", &[String::from("--opt1")]);
-        assert_suggestions(&completer, &ctx, "cmd1 sub1 --", &[String::from("--opt1")]);
-        assert_suggestions(&completer, &ctx, "cmd1 sub1 -o", &[String::from("--opt1")]);
-        assert_suggestions(&completer, &ctx, "cmd1 sub1 -1", &[]);
+        assert_suggestions(&cmd_manager, &ctx, "cmd1 sub1 ", &[String::from("--opt1")]);
+        assert_suggestions(&cmd_manager, &ctx, "cmd1 sub1 -", &[String::from("--opt1")]);
+        assert_suggestions(
+            &cmd_manager,
+            &ctx,
+            "cmd1 sub1 --",
+            &[String::from("--opt1")],
+        );
+        assert_suggestions(
+            &cmd_manager,
+            &ctx,
+            "cmd1 sub1 -o",
+            &[String::from("--opt1")],
+        );
+        assert_suggestions(&cmd_manager, &ctx, "cmd1 sub1 -1", &[]);
     }
 
     fn assert_suggestions(

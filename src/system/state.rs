@@ -1,11 +1,32 @@
-use std::{error::Error, fmt::Display, fs, io::BufReader};
+use std::{
+    error::Error,
+    fmt::Display,
+    fs,
+    io::{BufReader, BufWriter},
+    process::ChildStdin,
+    sync::mpsc,
+};
 
+use rustyline::{Editor, history::FileHistory};
 use zip::ZipArchive;
 
 use crate::{
-    command::{CommandManager, SubCommand},
-    system::{config::Config, jar_parser},
+    command::SubCommand,
+    system::{
+        command::{Command, CommandManager},
+        config::Config,
+        jar_parser,
+    },
 };
+
+/// Represents the current operating context of multi-server.
+/// Starts as `Default`, switches to `MinecraftServer` when a server is running,
+/// and reverts to `Default` when the server process ends.
+#[derive(Debug)]
+pub enum Context {
+    Default,
+    MinecraftServer(BufWriter<ChildStdin>),
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum SelectServerError {
@@ -25,13 +46,52 @@ pub struct Server {
     pub config: Config,
 }
 
-#[derive(Default)]
 pub struct State {
+    pub editor: Editor<CommandManager, FileHistory>,
     pub selected_server: Option<Server>,
     pub server_names: Vec<String>,
+    pub async_runtime: tokio::runtime::Runtime,
+    pub reqwest_client: reqwest::Client,
+    pub print_tx: mpsc::Sender<String>,
+    pub context_tx: mpsc::Sender<Context>,
+    pub context_rx: mpsc::Receiver<Context>,
 }
 
 impl State {
+    pub fn new(
+        editor: Editor<CommandManager, FileHistory>,
+        print_tx: mpsc::Sender<String>,
+    ) -> Self {
+        let (context_tx, context_rx) = mpsc::channel();
+
+        Self {
+            editor,
+            selected_server: None,
+            server_names: vec![],
+            async_runtime: tokio::runtime::Runtime::new().expect("Failed to create async runtime"),
+            reqwest_client: reqwest::Client::new(),
+            print_tx,
+            context_tx,
+            context_rx,
+        }
+    }
+
+    pub fn command_manager(&self) -> &CommandManager {
+        self.editor.helper().unwrap()
+    }
+
+    pub fn command_manager_mut(&mut self) -> &mut CommandManager {
+        self.editor.helper_mut().unwrap()
+    }
+
+    pub fn commands(&self) -> &Vec<Command> {
+        &self.command_manager().commands
+    }
+
+    pub fn commands_mut(&mut self) -> &mut Vec<Command> {
+        &mut self.command_manager_mut().commands
+    }
+
     pub fn select_server(&mut self, server_name: String) -> anyhow::Result<()> {
         if !self.server_names.contains(&server_name) {
             anyhow::bail!(SelectServerError::ServerNotFound);
@@ -111,7 +171,7 @@ impl State {
 
     /// Find all directories in the "instances" folder and put their names into `select` command's subcommands.
     /// This is for server name auto completion.
-    pub fn update_server_names(&mut self, cmd_manager: &mut CommandManager) -> anyhow::Result<()> {
+    pub fn update_server_names(&mut self) -> anyhow::Result<()> {
         let dir_names = fs::read_dir("instances")?
             .filter_map(Result::ok)
             .filter(|entry| entry.path().is_dir())
@@ -127,13 +187,7 @@ impl State {
         self.server_names = dir_names;
 
         // Update server names to subcommands of "select" command
-        let select_command = cmd_manager
-            .commands
-            .iter_mut()
-            .find(|cmd| cmd.name == "select")
-            .unwrap();
-
-        select_command.sub_commands = self
+        let sub_commands = self
             .server_names
             .iter()
             .map(|name| SubCommand {
@@ -143,7 +197,15 @@ impl State {
                 options: vec![],
                 handler: None,
             })
-            .collect();
+            .collect::<Vec<_>>();
+
+        let select_command = self
+            .commands_mut()
+            .iter_mut()
+            .find(|cmd| cmd.name == "select")
+            .unwrap();
+
+        select_command.sub_commands = sub_commands;
 
         Ok(())
     }
