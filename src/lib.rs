@@ -86,6 +86,8 @@ fn stop_if_minecraft_server(
         writer
             .flush()
             .expect("Failed to flush 'stop' command to Minecraft server");
+    } else {
+        return Ok(()); // No action needed if not in Minecraft server context
     }
 
     // Wait for the server to stop. This allows us to see the server's shutdown messages.
