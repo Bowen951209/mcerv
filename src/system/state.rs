@@ -31,6 +31,8 @@ pub enum Context {
 #[derive(Debug, Clone, Copy)]
 pub enum SelectServerError {
     ServerNotFound,
+    MultipleJarFilesFoundInServerDir,
+    NoJarFileFoundInServerDir,
 }
 
 impl Display for SelectServerError {
@@ -98,11 +100,7 @@ impl State {
         }
 
         let instance_dir = format!("instances/{server_name}");
-
-        let old_config = Config::load(&format!("{instance_dir}/multi_server_config.json"))?;
-
-        // Check if user maually changed the server jar file.
-        // If so, update the config.
+        let config_path = format!("{instance_dir}/multi_server_config.json");
 
         // Find .jar files in instances/server_name
         let mut jar_files_iter =
@@ -117,16 +115,34 @@ impl State {
                             .unwrap_or(false)
                 });
 
-        let server_jar_name = if let Some(jar_entry) = jar_files_iter.next() {
-            if jar_files_iter.next().is_some() {
-                eprintln!("Multiple .jar files found in {instance_dir}. Using the first one.");
-            }
+        // If no jar files found, return an error
+        let jar_file = jar_files_iter
+            .next()
+            .ok_or(SelectServerError::NoJarFileFoundInServerDir)?;
 
-            jar_entry.file_name().to_string_lossy().to_string()
-        } else {
-            anyhow::bail!("No .jar file found in {instance_dir}");
-        };
+        // If multiple jar files found, return an error
+        if jar_files_iter.next().is_some() {
+            anyhow::bail!(SelectServerError::MultipleJarFilesFoundInServerDir);
+        }
 
+        // If config file does not exist, create it
+        if fs::metadata(&config_path).is_err() {
+            let config = Config::new(jar_file.path())?;
+            config.save(&server_name)?;
+
+            self.selected_server = Some(Server {
+                name: server_name,
+                config,
+            });
+
+            return Ok(());
+        }
+
+        let old_config = Config::load(&config_path)?;
+
+        // Check if user maually changed the server jar file.
+        // If so, update the config.
+        let server_jar_name = jar_file.file_name().to_string_lossy().to_string();
         let server_jar_path = format!("{instance_dir}/{server_jar_name}");
 
         let mut server_jar_file = fs::File::open(&server_jar_path)?;
