@@ -30,7 +30,7 @@ pub fn run() -> anyhow::Result<()> {
     let mut context = Context::Default;
 
     loop {
-        let readline = state.editor.readline("multi-server> ");
+        let readline = state.editor.readline("> ");
 
         // If the context is updated, we will receive a message from the context channel.
         // In default context, we execute the input command.
