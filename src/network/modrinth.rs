@@ -102,7 +102,7 @@ pub async fn search(
         .join("");
 
     let facets = format!(
-        "[[\"categories:fabric\"],[\"server_side:required\"],[\"server_side:optional\"],[\"project_type:mod\"]{joined}]"
+        "[[\"categories:fabric\"],[\"server_side:required\",\"server_side:optional\"],[\"project_type:mod\"]{joined}]"
     );
 
     builder = builder.query(&[("facets", facets)]);
