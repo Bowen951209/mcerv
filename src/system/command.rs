@@ -52,6 +52,10 @@ impl Display for OptionError {
 
 impl Error for OptionError {}
 
+trait Help {
+    fn print_help(&self);
+}
+
 #[derive(Default)]
 pub struct Command {
     pub name: &'static str,
@@ -59,6 +63,31 @@ pub struct Command {
     pub options: Vec<CommandOption>,
     pub help: &'static str,
     pub handler: Option<Handler>,
+}
+
+impl Help for Command {
+    fn print_help(&self) {
+        println!("Command: {}", self.name);
+
+        if !self.help.is_empty() {
+            println!("Help: {}", self.help);
+        }
+
+        if !self.sub_commands.is_empty() {
+            println!("Subcommands:");
+            for sub_command in &self.sub_commands {
+                sub_command.print_help();
+                println!();
+            }
+        }
+
+        if !self.options.is_empty() {
+            println!("  Options:");
+            for option in &self.options {
+                option.print_help();
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -73,9 +102,42 @@ pub struct SubCommand {
     pub handler: Option<Handler>,
 }
 
+impl Help for SubCommand {
+    fn print_help(&self) {
+        let help = if self.help.is_empty() {
+            "No help available."
+        } else {
+            self.help
+        };
+
+        println!("  {}: {}", self.name, help);
+
+        if !self.sub_commands.is_empty() {
+            println!("Subcommands:");
+            for sub_command in &self.sub_commands {
+                sub_command.print_help();
+            }
+        }
+
+        if !self.options.is_empty() {
+            println!("  Options:");
+            for option in &self.options {
+                print!("    ");
+                option.print_help();
+            }
+        }
+    }
+}
+
 pub struct CommandOption {
     pub name: &'static str,
     pub help: &'static str,
+}
+
+impl Help for CommandOption {
+    fn print_help(&self) {
+        println!("  --{}: {}", self.name, self.help);
+    }
 }
 
 pub struct CommandManager {
@@ -275,7 +337,7 @@ impl CommandManager {
                 sub_commands: vec![SubCommand {
                     name: "mods-support".to_string(),
                     sub_commands: vec![/*Subcommand is the game version*/],
-                    help: "Check if the mods in the selected server have availible version for the specified game version on Modrinth.",
+                    help: "Check if the mods in the selected server have available version for the specified game version on Modrinth.",
                     handler: Some(Self::check_mods_support_handler),
                     ..Default::default()
                 }],
@@ -1037,6 +1099,19 @@ impl CommandManager {
             .iter()
             .find(|cmd| cmd.name == tokens[0])
             .ok_or(format!("Unknown command: {}", tokens[0]))?;
+
+        if tokens.contains(&"--help".to_string()) {
+            if tokens.len() > 2 {
+                return Err(
+                    "Too many arguments for --help. You should only use --help with main commands."
+                        .to_string(),
+                );
+            }
+
+            command.print_help();
+
+            return Ok(());
+        }
 
         let deepest_sub_command = Self::find_deepest_subcommand(&command.sub_commands, &tokens);
 
