@@ -111,9 +111,7 @@ pub async fn search(
         .collect::<Vec<_>>()
         .join("");
 
-    let facets = format!(
-        "[[\"categories:fabric\"],[\"server_side:required\",\"server_side:optional\"],[\"project_type:mod\"]{joined}]"
-    );
+    let facets = format!("[[\"server_side:required\",\"server_side:optional\"]{joined}]");
 
     builder = builder.query(&[("facets", facets)]);
 
@@ -341,6 +339,8 @@ mod tests {
         let query = "a";
         let search_response = search(&client, query, &[], None, None).await.unwrap();
         let hits = search_response.0["hits"].as_array().unwrap();
+
+        assert!(!hits.is_empty());
 
         for hit in hits {
             let project_type = hit["project_type"].as_str().unwrap();
