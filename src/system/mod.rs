@@ -1,4 +1,3 @@
-pub mod command;
+pub mod cli;
 pub mod config;
 pub mod jar_parser;
-pub mod state;

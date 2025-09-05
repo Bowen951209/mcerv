@@ -1,3 +1,4 @@
+use crate::{system::jar_parser, try_server_dir};
 use serde::{Deserialize, Serialize};
 use shlex::QuoteError;
 use std::{
@@ -9,59 +10,52 @@ use std::{
 };
 use zip::ZipArchive;
 
-use crate::system::jar_parser;
-
 #[derive(Debug)]
-pub enum InvalidOccurrenceCountError {
-    Jar,
-    Xmx,
-    Xms,
+pub enum InvalidStartCommandError {
+    JarOccurrence,
+    XmxOccurrence,
+    XmsOccurrence,
+    Split,
 }
 
-impl Display for InvalidOccurrenceCountError {
+impl Display for InvalidStartCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+        match self {
+            InvalidStartCommandError::JarOccurrence => {
+                write!(f, "start_command must contain exactly one .jar file")
+            }
+            InvalidStartCommandError::XmxOccurrence => {
+                write!(f, "start_command must contain exactly one -Xmx option")
+            }
+            InvalidStartCommandError::XmsOccurrence => {
+                write!(f, "start_command must contain exactly one -Xms option")
+            }
+            InvalidStartCommandError::Split => {
+                write!(f, "failed to split start_command with shlex")
+            }
+        }
     }
 }
 
-impl Error for InvalidOccurrenceCountError {}
+impl Error for InvalidStartCommandError {}
 
 #[derive(Serialize, Deserialize)]
 pub struct StartCommand(String);
 
 impl StartCommand {
-    pub fn split(&self) -> Vec<String> {
-        shlex::split(&self.0).expect("Command is erroneous")
-    }
-
-    fn check_valid(&self) -> Result<(), InvalidOccurrenceCountError> {
-        let tokens = self.split();
-
-        if tokens.iter().filter(|t| t.contains(".jar")).count() != 1 {
-            return Err(InvalidOccurrenceCountError::Jar);
-        }
-
-        if tokens.iter().filter(|t| t.contains("-Xmx")).count() != 1 {
-            return Err(InvalidOccurrenceCountError::Xmx);
-        }
-
-        if tokens.iter().filter(|t| t.contains("-Xms")).count() != 1 {
-            return Err(InvalidOccurrenceCountError::Xms);
-        }
-
-        Ok(())
-    }
-
     pub fn get_jar_name(&self) -> String {
         // Find the .jar in start_command and return it
-        let tokens = self.split();
-        tokens.iter().find(|t| t.contains(".jar")).unwrap().clone()
+        self.split()
+            .iter()
+            .find(|t| t.ends_with(".jar"))
+            .unwrap()
+            .clone()
     }
 
     pub fn set_jar(&mut self, jar_name: String) -> Result<(), QuoteError> {
         // Find the .jar in start_command and replace it
         let mut tokens = self.split();
-        let found_jar = tokens.iter_mut().find(|t| t.contains(".jar")).unwrap();
+        let found_jar = tokens.iter_mut().find(|t| t.ends_with(".jar")).unwrap();
         *found_jar = jar_name;
 
         let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
@@ -93,6 +87,28 @@ impl StartCommand {
 
         Ok(())
     }
+
+    fn split(&self) -> Vec<String> {
+        shlex::split(&self.0).unwrap()
+    }
+
+    fn check_valid(&self) -> Result<(), InvalidStartCommandError> {
+        let tokens = shlex::split(&self.0).ok_or(InvalidStartCommandError::Split)?;
+
+        if tokens.iter().filter(|t| t.ends_with(".jar")).count() != 1 {
+            return Err(InvalidStartCommandError::JarOccurrence);
+        }
+
+        if tokens.iter().filter(|t| t.contains("-Xmx")).count() != 1 {
+            return Err(InvalidStartCommandError::XmxOccurrence);
+        }
+
+        if tokens.iter().filter(|t| t.contains("-Xms")).count() != 1 {
+            return Err(InvalidStartCommandError::XmsOccurrence);
+        }
+
+        Ok(())
+    }
 }
 
 impl From<String> for StartCommand {
@@ -104,11 +120,6 @@ impl From<String> for StartCommand {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ServerFork {
     Fabric, // will support more in the future
-}
-
-pub enum StartScript {
-    Windows(String),
-    Unix(String),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -162,7 +173,8 @@ impl Config {
         })
     }
 
-    pub fn load(path: &impl AsRef<Path>) -> anyhow::Result<Config> {
+    pub fn load(server_name: &str) -> anyhow::Result<Config> {
+        let path = try_server_dir(server_name)?.join("multi_server_config.json");
         let config_content = fs::read_to_string(path)?;
         let config: Config = serde_json::from_str(&config_content)?;
         config.check_validity()?;
@@ -171,13 +183,13 @@ impl Config {
     }
 
     pub fn save(&self, server_name: &str) -> anyhow::Result<()> {
-        let path = format!("instances/{server_name}/multi_server_config.json");
+        let path = try_server_dir(server_name)?.join("multi_server_config.json");
         let file = File::create(&path)?;
         serde_json::to_writer_pretty(file, &self)?;
         Ok(())
     }
 
-    pub fn create_start_script(&self) -> Result<StartScript, InvalidOccurrenceCountError> {
+    pub fn create_start_script(&self) -> Result<String, InvalidStartCommandError> {
         let script = if cfg!(target_os = "windows") {
             // Windows batch script
 
@@ -189,7 +201,7 @@ set PATH=%JAVA_HOME%\bin;%PATH%"#
                 None => String::new(),
             };
 
-            StartScript::Windows(format!(
+            format!(
                 r#"@echo off
 {}
 
@@ -197,7 +209,7 @@ echo Using Java: %JAVA_HOME%
 java --version
 {}"#,
                 java_home_script, self.start_command.0
-            ))
+            )
         } else {
             // Unix shell script
             let java_home_script = match &self.java_home {
@@ -208,7 +220,7 @@ export PATH="$JAVA_HOME/bin:$PATH""#
                 None => String::new(),
             };
 
-            StartScript::Unix(format!(
+            format!(
                 r#"#!/usr/bin/env bash
 {}
 
@@ -216,13 +228,13 @@ echo Using Java: %JAVA_HOME%
 java --version
 {}"#,
                 java_home_script, self.start_command.0
-            ))
+            )
         };
 
         Ok(script)
     }
 
-    pub fn check_validity(&self) -> Result<(), InvalidOccurrenceCountError> {
+    pub fn check_validity(&self) -> Result<(), InvalidStartCommandError> {
         self.start_command.check_valid()
     }
 }
