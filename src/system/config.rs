@@ -5,8 +5,8 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
-    io::BufReader,
-    path::Path,
+    io::{self, BufReader},
+    path::{Path, PathBuf},
 };
 use zip::ZipArchive;
 
@@ -38,6 +38,25 @@ impl Display for InvalidStartCommandError {
 }
 
 impl Error for InvalidStartCommandError {}
+
+#[derive(Debug)]
+pub enum InvalidServerDirError {
+    MultipleJars,
+    NoJar,
+}
+
+impl Display for InvalidServerDirError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvalidServerDirError::MultipleJars => {
+                write!(f, "multiple .jar files found in server directory")
+            }
+            InvalidServerDirError::NoJar => write!(f, "no .jar file found in server directory"),
+        }
+    }
+}
+
+impl Error for InvalidServerDirError {}
 
 #[derive(Serialize, Deserialize)]
 pub struct StartCommand(String);
@@ -173,11 +192,21 @@ impl Config {
         })
     }
 
-    pub fn load(server_name: &str) -> anyhow::Result<Config> {
-        let path = try_server_dir(server_name)?.join("multi_server_config.json");
-        let config_content = fs::read_to_string(path)?;
-        let config: Config = serde_json::from_str(&config_content)?;
-        config.check_validity()?;
+    /// Load the config from the server directory.
+    /// If the config file does not exist, create a new one with default values.
+    pub fn load_or_create(server_name: &str) -> anyhow::Result<Config> {
+        let server_dir = try_server_dir(server_name)?;
+        let path = server_dir.join("multi_server_config.json");
+
+        if !path.exists() {
+            println!("mcerv config file does not exist, creating a new one with default values...");
+            let jar = single_jar(&server_dir)?;
+            return Config::new(jar);
+        }
+
+        let content = fs::read_to_string(path)?;
+        let config: Config = serde_json::from_str(&content)?;
+        config.check_validity(server_dir)?;
 
         Ok(config)
     }
@@ -237,6 +266,41 @@ java --version
     pub fn check_validity(&self) -> Result<(), InvalidStartCommandError> {
         self.start_command.check_valid()
     }
+
+/// Returns the first `.jar` file found in the server directory.
+///
+/// # Errors
+/// * If there are multiple `.jar` files, returns [`InvalidServerDirError::MultipleJars`].
+/// * If no `.jar` file is found, returns [`InvalidServerDirError::NoJar`].
+/// * If trouble reading the directory, returns the underlying [`io::Error`].
+fn single_jar(server_dir: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
+    let mut jars = jar_files(server_dir)?.into_iter();
+    let jar = jars.next();
+
+    if jars.next().is_some() {
+        anyhow::bail!(InvalidServerDirError::MultipleJars);
+    }
+
+    jar.ok_or(anyhow::anyhow!(InvalidServerDirError::NoJar))
+}
+
+fn jar_files(server_dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let server_dir = server_dir.as_ref();
+    let mut jars = vec![];
+
+    for entry in fs::read_dir(server_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension() != Some(std::ffi::OsStr::new("jar")) {
+            continue;
+        }
+        jars.push(path);
+    }
+
+    Ok(jars)
 }
 
 #[cfg(test)]

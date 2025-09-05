@@ -139,7 +139,7 @@ pub async fn list_mods(
         .map(jar_parser::calculate_hash)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let config = Config::load(server_name)?;
+    let config = Config::load_or_create(server_name)?;
     let game_versions = [config.game_version.as_str()];
 
     let (latest_versions_res, old_versions_res) = tokio::join!(
@@ -267,7 +267,7 @@ pub fn set_config(
     min_mem: Option<String>,
     java_home: Option<String>,
 ) -> anyhow::Result<()> {
-    let mut config = Config::load(server_name)?;
+    let mut config = Config::load_or_create(server_name)?;
 
     if let Some(max_mem) = max_mem {
         config.start_command.set_max_memory(&max_mem)?;
@@ -346,7 +346,7 @@ pub async fn install_mod(
 }
 
 pub fn generate_start_script(server_name: &str) -> anyhow::Result<()> {
-    let start_script = Config::load(server_name)?.create_start_script()?;
+    let start_script = Config::load_or_create(server_name)?.create_start_script()?;
 
     let filename = if cfg!(target_os = "windows") {
         "start_script.bat"
@@ -400,7 +400,7 @@ pub async fn update_server_jar(
 
     println!("Deleting old server jar...");
 
-    let mut config = Config::load(server_name)?;
+    let mut config = Config::load_or_create(server_name)?;
     let old_jar_name = config.start_command.get_jar_name();
     let old_jar_path = server_dir.join(old_jar_name);
     fs::remove_file(&old_jar_path)?;
