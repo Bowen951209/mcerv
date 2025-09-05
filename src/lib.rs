@@ -408,7 +408,7 @@ pub async fn update_server_jar(
     println!("Updating config...");
     config.start_command.set_jar(file_name)?;
 
-    config.save(&server_name)?;
+    config.save(server_name)?;
 
     println!("Update complete in {:?}", start.elapsed());
 
