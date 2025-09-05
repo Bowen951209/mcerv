@@ -1,5 +1,4 @@
-use anyhow::Result;
-
-fn main() -> Result<()> {
-    multi_server::run()
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    multi_server::run().await
 }

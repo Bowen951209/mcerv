@@ -1,8 +1,24 @@
 use std::{collections::HashMap, fmt::Display, path::Path};
 
+use clap::ValueEnum;
 use serde::Deserialize;
 
 use crate::network::{display_json_value, download_file};
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum SearchIndex {
+    Relevance,
+    Downloads,
+    Follows,
+    Newest,
+}
+
+impl Display for SearchIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = format!("{self:?}").to_lowercase();
+        write!(f, "{s}")
+    }
+}
 
 // https://docs.modrinth.com/api/operations/searchprojects/
 #[derive(Deserialize)]
@@ -38,12 +54,6 @@ impl Display for SearchResponse {
 // https://docs.modrinth.com/api/operations/getprojectversions/
 #[derive(Deserialize)]
 pub struct ProjectVersionsResponse(serde_json::Value);
-
-impl ProjectVersionsResponse {
-    pub fn versions(&self) -> &Vec<serde_json::Value> {
-        self.0.as_array().unwrap()
-    }
-}
 
 impl Display for ProjectVersionsResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -87,8 +97,8 @@ pub async fn search(
     client: &reqwest::Client,
     query: &str,
     facets: &[&str],
-    index: Option<&str>,
-    limit: Option<&str>,
+    index: Option<SearchIndex>,
+    limit: Option<usize>,
 ) -> anyhow::Result<SearchResponse> {
     let mut builder = client.get("https://api.modrinth.com/v2/search");
 
@@ -101,17 +111,15 @@ pub async fn search(
         .collect::<Vec<_>>()
         .join("");
 
-    let facets = format!(
-        "[[\"categories:fabric\"],[\"server_side:required\",\"server_side:optional\"],[\"project_type:mod\"]{joined}]"
-    );
+    let facets = format!("[[\"server_side:required\",\"server_side:optional\"]{joined}]");
 
     builder = builder.query(&[("facets", facets)]);
 
     if let Some(i) = index {
-        builder = builder.query(&[("index", i)]);
+        builder = builder.query(&[("index", i.to_string())]);
     }
     if let Some(l) = limit {
-        builder = builder.query(&[("limit", l)]);
+        builder = builder.query(&[("limit", l.to_string())]);
     }
 
     let result = builder.send().await?.error_for_status()?;
@@ -122,30 +130,19 @@ pub async fn search(
 pub async fn get_project_versions(
     client: &reqwest::Client,
     project_slug: &str,
-    game_versions: &[&str],
-    featured: Option<bool>,
+    featured: bool,
 ) -> anyhow::Result<ProjectVersionsResponse> {
     let mut builder = client.get(format!(
         "https://api.modrinth.com/v2/project/{project_slug}/version"
     ));
 
     // Only filter by Fabric loader
-    builder = builder.query(&[("loaders", "[\"fabric\"]")]);
-
-    let joined = game_versions
-        .iter()
-        .map(|gv| format!("\"{gv}\""))
-        .collect::<Vec<_>>()
-        .join(",");
-
-    builder = builder.query(&[("game_versions", format!("[{joined}]"))]);
-
-    if let Some(f) = featured {
-        builder = builder.query(&[("featured", &f.to_string())]);
-    }
+    builder = builder.query(&[
+        ("loaders", "[\"fabric\"]"),
+        ("featured", &featured.to_string()),
+    ]);
 
     let result = builder.send().await?.error_for_status()?;
-
     let response: ProjectVersionsResponse = serde_json::from_str(&result.text().await?)?;
 
     Ok(response)
@@ -316,7 +313,14 @@ mod tests {
         let query = "map";
         let facets = ["license:mit", "project_type:mod"];
 
-        let result = search(&client, query, &facets, Some("downloads"), Some("4")).await;
+        let result = search(
+            &client,
+            query,
+            &facets,
+            Some(SearchIndex::Downloads),
+            Some(4),
+        )
+        .await;
         assert!(result.is_ok());
     }
 
@@ -336,6 +340,8 @@ mod tests {
         let search_response = search(&client, query, &[], None, None).await.unwrap();
         let hits = search_response.0["hits"].as_array().unwrap();
 
+        assert!(!hits.is_empty());
+
         for hit in hits {
             let project_type = hit["project_type"].as_str().unwrap();
             assert_eq!(project_type, "mod");
@@ -347,23 +353,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_project_versions_with_filters() {
+    async fn test_get_project_versions() {
         let client = reqwest::Client::new();
         let project_slug = "fabric-api";
-        let game_versions = ["1.21", "1.21.1"];
-        let featured = true;
-        let result =
-            get_project_versions(&client, project_slug, &game_versions, Some(featured)).await;
+        let result = get_project_versions(&client, project_slug, false).await;
 
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_get_project_versions_without_filters() {
-        let client = reqwest::Client::new();
-        let project_slug = "fabric-api";
-
-        let result = get_project_versions(&client, project_slug, &[], None).await;
         assert!(result.is_ok());
     }
 }

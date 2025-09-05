@@ -1,73 +1,74 @@
+use crate::{server_dir, system::jar_parser, try_server_dir};
 use serde::{Deserialize, Serialize};
 use shlex::QuoteError;
 use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
-    io::BufReader,
-    path::Path,
+    io::{self, BufReader},
+    path::{Path, PathBuf},
 };
 use zip::ZipArchive;
 
-use crate::system::jar_parser;
-
 #[derive(Debug)]
-pub enum InvalidOccurrenceCountError {
-    Jar,
-    Xmx,
-    Xms,
+pub enum InvalidStartCommandError {
+    JarOccurrence,
+    XmxOccurrence,
+    XmsOccurrence,
+    Split,
 }
 
-impl Display for InvalidOccurrenceCountError {
+impl Display for InvalidStartCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+        match self {
+            InvalidStartCommandError::JarOccurrence => {
+                write!(f, "start_command must contain exactly one .jar file")
+            }
+            InvalidStartCommandError::XmxOccurrence => {
+                write!(f, "start_command must contain exactly one -Xmx option")
+            }
+            InvalidStartCommandError::XmsOccurrence => {
+                write!(f, "start_command must contain exactly one -Xms option")
+            }
+            InvalidStartCommandError::Split => {
+                write!(f, "failed to split start_command with shlex")
+            }
+        }
     }
 }
 
-impl Error for InvalidOccurrenceCountError {}
+impl Error for InvalidStartCommandError {}
+
+#[derive(Debug)]
+pub enum InvalidServerDirError {
+    MultipleJars,
+    NoJar,
+}
+
+impl Display for InvalidServerDirError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvalidServerDirError::MultipleJars => {
+                write!(f, "multiple .jar files found in server directory")
+            }
+            InvalidServerDirError::NoJar => write!(f, "no .jar file found in server directory"),
+        }
+    }
+}
+
+impl Error for InvalidServerDirError {}
 
 #[derive(Serialize, Deserialize)]
 pub struct StartCommand(String);
 
 impl StartCommand {
-    pub fn split(&self) -> Vec<String> {
-        shlex::split(&self.0).expect("Command is erroneous")
-    }
-
-    fn check_valid(&self) -> Result<(), InvalidOccurrenceCountError> {
-        let tokens = self.split();
-
-        if tokens.iter().filter(|t| t.contains(".jar")).count() != 1 {
-            return Err(InvalidOccurrenceCountError::Jar);
-        }
-
-        if tokens.iter().filter(|t| t.contains("-Xmx")).count() != 1 {
-            return Err(InvalidOccurrenceCountError::Xmx);
-        }
-
-        if tokens.iter().filter(|t| t.contains("-Xms")).count() != 1 {
-            return Err(InvalidOccurrenceCountError::Xms);
-        }
-
-        Ok(())
-    }
-
     pub fn get_jar_name(&self) -> String {
         // Find the .jar in start_command and return it
-        let tokens = self.split();
-        tokens.iter().find(|t| t.contains(".jar")).unwrap().clone()
-    }
-
-    pub fn set_jar(&mut self, jar_name: String) -> Result<(), QuoteError> {
-        // Find the .jar in start_command and replace it
-        let mut tokens = self.split();
-        let found_jar = tokens.iter_mut().find(|t| t.contains(".jar")).unwrap();
-        *found_jar = jar_name;
-
-        let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-        self.0 = shlex::try_join(str_tokens)?;
-
-        Ok(())
+        self.split()
+            .iter()
+            .find(|t| t.ends_with(".jar"))
+            .unwrap()
+            .clone()
     }
 
     pub fn set_max_memory(&mut self, max_memory: &str) -> Result<(), QuoteError> {
@@ -93,6 +94,40 @@ impl StartCommand {
 
         Ok(())
     }
+
+    fn set_jar(&mut self, jar_name: String) -> Result<(), QuoteError> {
+        // Find the .jar in start_command and replace it
+        let mut tokens = self.split();
+        let found_jar = tokens.iter_mut().find(|t| t.ends_with(".jar")).unwrap();
+        *found_jar = jar_name;
+
+        let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+        self.0 = shlex::try_join(str_tokens)?;
+
+        Ok(())
+    }
+
+    fn split(&self) -> Vec<String> {
+        shlex::split(&self.0).unwrap()
+    }
+
+    fn check_valid(&self) -> Result<(), InvalidStartCommandError> {
+        let tokens = shlex::split(&self.0).ok_or(InvalidStartCommandError::Split)?;
+
+        if tokens.iter().filter(|t| t.ends_with(".jar")).count() != 1 {
+            return Err(InvalidStartCommandError::JarOccurrence);
+        }
+
+        if tokens.iter().filter(|t| t.contains("-Xmx")).count() != 1 {
+            return Err(InvalidStartCommandError::XmxOccurrence);
+        }
+
+        if tokens.iter().filter(|t| t.contains("-Xms")).count() != 1 {
+            return Err(InvalidStartCommandError::XmsOccurrence);
+        }
+
+        Ok(())
+    }
 }
 
 impl From<String> for StartCommand {
@@ -104,11 +139,6 @@ impl From<String> for StartCommand {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ServerFork {
     Fabric, // will support more in the future
-}
-
-pub enum StartScript {
-    Windows(String),
-    Unix(String),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -124,16 +154,7 @@ impl Config {
     /// Create a new Config with max and min memory set to 4G.
     pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let jar_path = jar_path.as_ref();
-
-        let jar_name = jar_path
-            .file_name()
-            .unwrap()
-            .to_os_string()
-            .into_string()
-            .unwrap();
-
-        let start_command = StartCommand(format!("java -Xmx4G -Xms4G -jar {jar_name} nogui"));
-
+        let start_command = StartCommand("java -Xmx4G -Xms4G -jar replaceme.jar nogui".to_string());
         let instance = Self::new_with_start_command(start_command, jar_path)?;
 
         Ok(instance)
@@ -143,41 +164,67 @@ impl Config {
         start_command: StartCommand,
         jar_path: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
-        let jar_path = jar_path.as_ref();
-        let mut jar_file = File::open(jar_path)?;
-
-        let server_jar_hash = jar_parser::calculate_hash(&mut jar_file)?;
-
-        let mut archive = ZipArchive::new(BufReader::new(jar_file))?;
-
-        let server_fork = jar_parser::detect_server_fork(&mut archive)?;
-        let game_version = jar_parser::detect_game_version(&mut archive)?;
-
-        Ok(Self {
+        let mut config = Self {
             start_command,
             java_home: None,
-            server_fork,
-            game_version,
-            server_jar_hash,
-        })
+            server_fork: ServerFork::Fabric,
+            game_version: String::new(),
+            server_jar_hash: String::new(),
+        };
+
+        config.set_jar(jar_path)?;
+
+        Ok(config)
     }
 
-    pub fn load(path: &impl AsRef<Path>) -> anyhow::Result<Config> {
-        let config_content = fs::read_to_string(path)?;
-        let config: Config = serde_json::from_str(&config_content)?;
-        config.check_validity()?;
+    /// Load the config from the server directory.
+    /// If the config file does not exist, create a new one with default values.
+    pub fn load_or_create(server_name: &str) -> anyhow::Result<Config> {
+        let server_dir = try_server_dir(server_name)?;
+        let path = server_dir.join("multi_server_config.json");
+
+        if !path.exists() {
+            println!("mcerv config file does not exist, creating a new one with default values...");
+            let jar = single_jar(&server_dir)?;
+            return Config::new(jar);
+        }
+
+        let content = fs::read_to_string(path)?;
+        let mut config: Config = serde_json::from_str(&content)?;
+        config.check_validity_and_update(server_name)?;
 
         Ok(config)
     }
 
     pub fn save(&self, server_name: &str) -> anyhow::Result<()> {
-        let path = format!("instances/{server_name}/multi_server_config.json");
+        let path = try_server_dir(server_name)?.join("multi_server_config.json");
         let file = File::create(&path)?;
         serde_json::to_writer_pretty(file, &self)?;
         Ok(())
     }
 
-    pub fn create_start_script(&self) -> Result<StartScript, InvalidOccurrenceCountError> {
+    pub fn set_jar(&mut self, jar_path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let filename = jar_path
+            .as_ref()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        self.start_command.set_jar(filename)?;
+
+        let mut file = File::open(jar_path)?;
+        let hash = jar_parser::calculate_hash(&mut file)?;
+        let mut archive = ZipArchive::new(BufReader::new(&file))?;
+
+        self.server_jar_hash = hash;
+        self.server_fork = jar_parser::detect_server_fork(&mut archive)?;
+        self.game_version = jar_parser::detect_game_version(&mut archive)?;
+
+        Ok(())
+    }
+
+    pub fn create_start_script(&self) -> Result<String, InvalidStartCommandError> {
         let script = if cfg!(target_os = "windows") {
             // Windows batch script
 
@@ -189,7 +236,7 @@ set PATH=%JAVA_HOME%\bin;%PATH%"#
                 None => String::new(),
             };
 
-            StartScript::Windows(format!(
+            format!(
                 r#"@echo off
 {}
 
@@ -197,7 +244,7 @@ echo Using Java: %JAVA_HOME%
 java --version
 {}"#,
                 java_home_script, self.start_command.0
-            ))
+            )
         } else {
             // Unix shell script
             let java_home_script = match &self.java_home {
@@ -208,7 +255,7 @@ export PATH="$JAVA_HOME/bin:$PATH""#
                 None => String::new(),
             };
 
-            StartScript::Unix(format!(
+            format!(
                 r#"#!/usr/bin/env bash
 {}
 
@@ -216,15 +263,81 @@ echo Using Java: %JAVA_HOME%
 java --version
 {}"#,
                 java_home_script, self.start_command.0
-            ))
+            )
         };
 
         Ok(script)
     }
 
-    pub fn check_validity(&self) -> Result<(), InvalidOccurrenceCountError> {
-        self.start_command.check_valid()
+    /// Check
+    /// * the validity of the `mcerv` config
+    /// * the server jar file (by comparing the hash). If changed, update the properties in the config.
+    pub fn check_validity_and_update(&mut self, server_name: &str) -> anyhow::Result<()> {
+        // Check start command
+        self.start_command.check_valid()?;
+
+        // Check if user maually changed the server jar file
+        let server_dir = server_dir(server_name);
+        let current_hash = single_jar_hash(&server_dir)?;
+        let old_hash = &self.server_jar_hash;
+
+        if current_hash != *old_hash {
+            println!("Server jar file has changed.");
+            // Update the config with the new jar file information
+            let current_jar = single_jar(&server_dir)?;
+            self.set_jar(current_jar)?;
+            self.save(server_name)?;
+        }
+
+        Ok(())
     }
+}
+
+/// Returns the hash of the first `.jar` file found in the server directory.
+///
+/// See also [`single_jar`].
+fn single_jar_hash(server_dir: impl AsRef<Path>) -> anyhow::Result<String> {
+    let jar_path = single_jar(server_dir)?;
+    let mut jar_file = File::open(jar_path)?;
+    let jar_hash = jar_parser::calculate_hash(&mut jar_file)?;
+
+    Ok(jar_hash)
+}
+
+/// Returns the first `.jar` file found in the server directory.
+///
+/// # Errors
+/// * If there are multiple `.jar` files, returns [`InvalidServerDirError::MultipleJars`].
+/// * If no `.jar` file is found, returns [`InvalidServerDirError::NoJar`].
+/// * If trouble reading the directory, returns the underlying [`io::Error`].
+fn single_jar(server_dir: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
+    let mut jars = jar_files(server_dir)?.into_iter();
+    let jar = jars.next();
+
+    if jars.next().is_some() {
+        anyhow::bail!(InvalidServerDirError::MultipleJars);
+    }
+
+    jar.ok_or(anyhow::anyhow!(InvalidServerDirError::NoJar))
+}
+
+fn jar_files(server_dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let server_dir = server_dir.as_ref();
+    let mut jars = vec![];
+
+    for entry in fs::read_dir(server_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension() != Some(std::ffi::OsStr::new("jar")) {
+            continue;
+        }
+        jars.push(path);
+    }
+
+    Ok(jars)
 }
 
 #[cfg(test)]
