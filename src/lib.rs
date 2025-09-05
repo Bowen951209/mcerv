@@ -382,13 +382,19 @@ pub async fn update_server_jar(
     println!("Updating server jar...");
     let start = Instant::now();
 
+    // Find the old jar name before downloading the new one
+    // to prevent multiple jars existing at once
+    let server_dir = try_server_dir(server_name)?;
+    let mut config = Config::load_or_create(server_name)?;
+    let old_jar_name = config.start_command.get_jar_name();
+    let old_jar_path = server_dir.join(old_jar_name);
+
     println!("Fetching versions...");
     let (game_version, loader_version, installer_version) =
         version.versions(reqwest_client).await?;
 
     println!("Downloading new server jar...");
 
-    let server_dir = try_server_dir(server_name)?;
     let file_name = fabric_meta::download_server(
         reqwest_client,
         &game_version,
@@ -399,14 +405,10 @@ pub async fn update_server_jar(
     .await?;
 
     println!("Deleting old server jar...");
-
-    let mut config = Config::load_or_create(server_name)?;
-    let old_jar_name = config.start_command.get_jar_name();
-    let old_jar_path = server_dir.join(old_jar_name);
     fs::remove_file(&old_jar_path)?;
 
     println!("Updating config...");
-    config.start_command.set_jar(file_name)?;
+    config.set_jar(server_dir.join(&file_name))?;
 
     config.save(server_name)?;
 

@@ -40,7 +40,9 @@ impl Display for DetectServerInfoError {
     }
 }
 
-pub fn detect_server_fork(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::Result<ServerFork> {
+pub fn detect_server_fork(
+    archive: &mut ZipArchive<BufReader<&File>>,
+) -> anyhow::Result<ServerFork> {
     let manifest = parse_manifest(&read_file(archive, "META-INF/MANIFEST.MF")?);
 
     // !!! Currently support fabric only.
@@ -55,7 +57,7 @@ pub fn detect_server_fork(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::
     anyhow::bail!(DetectServerInfoError::MainClassNotFound);
 }
 
-pub fn detect_game_version(archive: &mut ZipArchive<BufReader<File>>) -> anyhow::Result<String> {
+pub fn detect_game_version(archive: &mut ZipArchive<BufReader<&File>>) -> anyhow::Result<String> {
     // Game version property is stored in `install.properties`.
     let install_properties = parse_properties(&read_file(archive, "install.properties")?);
 
@@ -75,7 +77,10 @@ pub fn calculate_hash(file: &mut File) -> std::io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn read_file(archive: &mut ZipArchive<BufReader<File>>, file_name: &str) -> anyhow::Result<String> {
+fn read_file(
+    archive: &mut ZipArchive<BufReader<&File>>,
+    file_name: &str,
+) -> anyhow::Result<String> {
     let mut file_in_jar = archive
         .by_name(file_name)
         .map_err(|_| anyhow!("{} not found in JAR", file_name))?;
@@ -119,7 +124,7 @@ mod tests {
     fn test_detect_fabric_fork() {
         let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
         let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(file)).unwrap();
+        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
         let fork = detect_server_fork(&mut archive).unwrap();
 
         assert_eq!(fork, ServerFork::Fabric)
@@ -129,7 +134,7 @@ mod tests {
     fn test_detect_game_version() {
         let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
         let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(file)).unwrap();
+        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
         let version = detect_game_version(&mut archive).unwrap();
 
         assert_eq!(version, "1.21.8")

@@ -1,4 +1,4 @@
-use crate::{system::jar_parser, try_server_dir};
+use crate::{server_dir, system::jar_parser, try_server_dir};
 use serde::{Deserialize, Serialize};
 use shlex::QuoteError;
 use std::{
@@ -71,18 +71,6 @@ impl StartCommand {
             .clone()
     }
 
-    pub fn set_jar(&mut self, jar_name: String) -> Result<(), QuoteError> {
-        // Find the .jar in start_command and replace it
-        let mut tokens = self.split();
-        let found_jar = tokens.iter_mut().find(|t| t.ends_with(".jar")).unwrap();
-        *found_jar = jar_name;
-
-        let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-        self.0 = shlex::try_join(str_tokens)?;
-
-        Ok(())
-    }
-
     pub fn set_max_memory(&mut self, max_memory: &str) -> Result<(), QuoteError> {
         // Find the Xmx in start_command and replace it
         let mut tokens = self.split();
@@ -100,6 +88,18 @@ impl StartCommand {
         let mut tokens = self.split();
         let found_xms = tokens.iter_mut().find(|t| t.contains("-Xms")).unwrap();
         *found_xms = format!("-Xms{min_memory}");
+
+        let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+        self.0 = shlex::try_join(str_tokens)?;
+
+        Ok(())
+    }
+
+    fn set_jar(&mut self, jar_name: String) -> Result<(), QuoteError> {
+        // Find the .jar in start_command and replace it
+        let mut tokens = self.split();
+        let found_jar = tokens.iter_mut().find(|t| t.ends_with(".jar")).unwrap();
+        *found_jar = jar_name;
 
         let str_tokens = tokens.iter().map(|s| s.as_str()).collect::<Vec<_>>();
         self.0 = shlex::try_join(str_tokens)?;
@@ -154,16 +154,7 @@ impl Config {
     /// Create a new Config with max and min memory set to 4G.
     pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let jar_path = jar_path.as_ref();
-
-        let jar_name = jar_path
-            .file_name()
-            .unwrap()
-            .to_os_string()
-            .into_string()
-            .unwrap();
-
-        let start_command = StartCommand(format!("java -Xmx4G -Xms4G -jar {jar_name} nogui"));
-
+        let start_command = StartCommand(format!("java -Xmx4G -Xms4G -jar replaceme.jar nogui"));
         let instance = Self::new_with_start_command(start_command, jar_path)?;
 
         Ok(instance)
@@ -173,23 +164,17 @@ impl Config {
         start_command: StartCommand,
         jar_path: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
-        let jar_path = jar_path.as_ref();
-        let mut jar_file = File::open(jar_path)?;
-
-        let server_jar_hash = jar_parser::calculate_hash(&mut jar_file)?;
-
-        let mut archive = ZipArchive::new(BufReader::new(jar_file))?;
-
-        let server_fork = jar_parser::detect_server_fork(&mut archive)?;
-        let game_version = jar_parser::detect_game_version(&mut archive)?;
-
-        Ok(Self {
+        let mut config = Self {
             start_command,
             java_home: None,
-            server_fork,
-            game_version,
-            server_jar_hash,
-        })
+            server_fork: ServerFork::Fabric,
+            game_version: String::new(),
+            server_jar_hash: String::new(),
+        };
+
+        config.set_jar(jar_path)?;
+
+        Ok(config)
     }
 
     /// Load the config from the server directory.
@@ -205,8 +190,8 @@ impl Config {
         }
 
         let content = fs::read_to_string(path)?;
-        let config: Config = serde_json::from_str(&content)?;
-        config.check_validity(server_dir)?;
+        let mut config: Config = serde_json::from_str(&content)?;
+        config.check_validity_and_update(server_name)?;
 
         Ok(config)
     }
@@ -215,6 +200,27 @@ impl Config {
         let path = try_server_dir(server_name)?.join("multi_server_config.json");
         let file = File::create(&path)?;
         serde_json::to_writer_pretty(file, &self)?;
+        Ok(())
+    }
+
+    pub fn set_jar(&mut self, jar_path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let filename = jar_path
+            .as_ref()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        self.start_command.set_jar(filename)?;
+
+        let mut file = File::open(jar_path)?;
+        let hash = jar_parser::calculate_hash(&mut file)?;
+        let mut archive = ZipArchive::new(BufReader::new(&file))?;
+
+        self.server_jar_hash = hash;
+        self.server_fork = jar_parser::detect_server_fork(&mut archive)?;
+        self.game_version = jar_parser::detect_game_version(&mut archive)?;
+
         Ok(())
     }
 
@@ -263,9 +269,40 @@ java --version
         Ok(script)
     }
 
-    pub fn check_validity(&self) -> Result<(), InvalidStartCommandError> {
-        self.start_command.check_valid()
+    /// Check
+    /// * the validity of the `mcerv` config
+    /// * the server jar file (by comparing the hash). If changed, update the properties in the config.
+    pub fn check_validity_and_update(&mut self, server_name: &str) -> anyhow::Result<()> {
+        // Check start command
+        self.start_command.check_valid()?;
+
+        // Check if user maually changed the server jar file
+        let server_dir = server_dir(server_name);
+        let current_hash = single_jar_hash(&server_dir)?;
+        let old_hash = &self.server_jar_hash;
+
+        if current_hash != *old_hash {
+            println!("Server jar file has changed.");
+            // Update the config with the new jar file information
+            let current_jar = single_jar(&server_dir)?;
+            self.set_jar(current_jar)?;
+            self.save(server_name)?;
+        }
+
+        Ok(())
     }
+}
+
+/// Returns the hash of the first `.jar` file found in the server directory.
+///
+/// See also [`single_jar`].
+fn single_jar_hash(server_dir: impl AsRef<Path>) -> anyhow::Result<String> {
+    let jar_path = single_jar(server_dir)?;
+    let mut jar_file = File::open(jar_path)?;
+    let jar_hash = jar_parser::calculate_hash(&mut jar_file)?;
+
+    Ok(jar_hash)
+}
 
 /// Returns the first `.jar` file found in the server directory.
 ///
