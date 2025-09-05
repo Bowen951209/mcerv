@@ -154,7 +154,7 @@ impl Config {
     /// Create a new Config with max and min memory set to 4G.
     pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let jar_path = jar_path.as_ref();
-        let start_command = StartCommand(format!("java -Xmx4G -Xms4G -jar replaceme.jar nogui"));
+        let start_command = StartCommand("java -Xmx4G -Xms4G -jar replaceme.jar nogui".to_string());
         let instance = Self::new_with_start_command(start_command, jar_path)?;
 
         Ok(instance)
