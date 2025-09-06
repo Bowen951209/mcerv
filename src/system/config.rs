@@ -229,29 +229,45 @@ impl Config {
             // Windows batch script
             let java_home_script = match &self.java_home {
                 Some(java_home) => format!(
-                    "set JAVA_HOME={}\nset PATH=%JAVA_HOME%\\bin;%PATH%",
-                    java_home
+                    "\
+set JAVA_HOME={java_home}
+set PATH=%JAVA_HOME%\\bin;%PATH%"
                 ),
                 None => String::new(),
             };
 
             format!(
-                "@echo off\n{}\n\necho Using Java: %JAVA_HOME%\njava --version\n{}",
-                java_home_script, self.start_command.0
+                "\
+@echo off
+{java_home_script}
+
+echo Using Java: %JAVA_HOME%
+java --version
+{start_command}",
+                java_home_script = java_home_script,
+                start_command = self.start_command.0
             )
         } else {
             // Unix shell script
             let java_home_script = match &self.java_home {
                 Some(java_home) => format!(
-                    "export JAVA_HOME=\"{}\"\nexport PATH=\"$JAVA_HOME/bin:$PATH\"",
-                    java_home
+                    "\
+export JAVA_HOME=\"{java_home}\"
+export PATH=\"$JAVA_HOME/bin:$PATH\""
                 ),
                 None => String::new(),
             };
 
             format!(
-                "#!/usr/bin/env bash\n{}\n\necho Using Java: $JAVA_HOME\njava --version\n{}",
-                java_home_script, self.start_command.0
+                "\
+#!/usr/bin/env bash
+{java_home_script}
+
+echo Using Java: $JAVA_HOME
+java --version
+{start_command}",
+                java_home_script = java_home_script,
+                start_command = self.start_command.0
             )
         };
 
