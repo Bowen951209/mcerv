@@ -440,7 +440,6 @@ mod tests {
         };
 
         let script = config.create_start_script().unwrap();
-        
         if cfg!(target_os = "windows") {
             assert!(script.contains("@echo off"));
             assert!(script.contains("set JAVA_HOME=/path/to/java"));
@@ -464,7 +463,6 @@ mod tests {
         };
 
         let script_no_java = config_no_java.create_start_script().unwrap();
-        
         if cfg!(target_os = "windows") {
             assert!(script_no_java.contains("@echo off"));
             assert!(!script_no_java.contains("set JAVA_HOME="));
