@@ -227,42 +227,47 @@ impl Config {
     pub fn create_start_script(&self) -> Result<String, InvalidStartCommandError> {
         let script = if cfg!(target_os = "windows") {
             // Windows batch script
-
             let java_home_script = match &self.java_home {
                 Some(java_home) => format!(
-                    r#"set JAVA_HOME={java_home}
-set PATH=%JAVA_HOME%\bin;%PATH%"#
+                    "\
+set JAVA_HOME={java_home}
+set PATH=%JAVA_HOME%\\bin;%PATH%"
                 ),
                 None => String::new(),
             };
 
             format!(
-                r#"@echo off
-{}
+                "\
+@echo off
+{java_home_script}
 
 echo Using Java: %JAVA_HOME%
 java --version
-{}"#,
-                java_home_script, self.start_command.0
+{start_command}",
+                java_home_script = java_home_script,
+                start_command = self.start_command.0
             )
         } else {
             // Unix shell script
             let java_home_script = match &self.java_home {
                 Some(java_home) => format!(
-                    r#"export JAVA_HOME="{java_home}"
-export PATH="$JAVA_HOME/bin:$PATH""#
+                    "\
+export JAVA_HOME=\"{java_home}\"
+export PATH=\"$JAVA_HOME/bin:$PATH\""
                 ),
                 None => String::new(),
             };
 
             format!(
-                r#"#!/usr/bin/env bash
-{}
+                "\
+#!/usr/bin/env bash
+{java_home_script}
 
-echo Using Java: %JAVA_HOME%
+echo Using Java: $JAVA_HOME
 java --version
-{}"#,
-                java_home_script, self.start_command.0
+{start_command}",
+                java_home_script = java_home_script,
+                start_command = self.start_command.0
             )
         };
 
@@ -421,5 +426,49 @@ mod tests {
         let start_command =
             StartCommand::from("java -Xmx2G -jar some-server.jar nogui".to_string());
         assert!(start_command.check_valid().is_err());
+    }
+
+    #[test]
+    fn test_create_start_script() {
+        // Test with JAVA_HOME set
+        let config = Config {
+            start_command: StartCommand("java -Xmx2G -Xms1G -jar server.jar nogui".to_string()),
+            java_home: Some("/path/to/java".to_string()),
+            server_fork: ServerFork::Fabric,
+            game_version: "1.21.1".to_string(),
+            server_jar_hash: "test_hash".to_string(),
+        };
+
+        let script = config.create_start_script().unwrap();
+        if cfg!(target_os = "windows") {
+            assert!(script.contains("@echo off"));
+            assert!(script.contains("set JAVA_HOME=/path/to/java"));
+            assert!(script.contains("set PATH=%JAVA_HOME%\\bin;%PATH%"));
+            assert!(script.contains("java -Xmx2G -Xms1G -jar server.jar nogui"));
+        } else {
+            assert!(script.contains("#!/usr/bin/env bash"));
+            assert!(script.contains("export JAVA_HOME=\"/path/to/java\""));
+            assert!(script.contains("export PATH=\"$JAVA_HOME/bin:$PATH\""));
+            assert!(script.contains("echo Using Java: $JAVA_HOME"));
+            assert!(script.contains("java -Xmx2G -Xms1G -jar server.jar nogui"));
+        }
+
+        // Test without JAVA_HOME
+        let config_no_java = Config {
+            start_command: StartCommand("java -Xmx2G -Xms1G -jar server.jar nogui".to_string()),
+            java_home: None,
+            server_fork: ServerFork::Fabric,
+            game_version: "1.21.1".to_string(),
+            server_jar_hash: "test_hash".to_string(),
+        };
+
+        let script_no_java = config_no_java.create_start_script().unwrap();
+        if cfg!(target_os = "windows") {
+            assert!(script_no_java.contains("@echo off"));
+            assert!(!script_no_java.contains("set JAVA_HOME="));
+        } else {
+            assert!(script_no_java.contains("#!/usr/bin/env bash"));
+            assert!(!script_no_java.contains("export JAVA_HOME="));
+        }
     }
 }
