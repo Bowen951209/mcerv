@@ -2,15 +2,17 @@ use std::{
     collections::HashMap,
     error::Error,
     fmt::Display,
-    fs::File,
-    io::{BufReader, Read},
+    fs::{self, File},
+    io::{self, BufReader, Read},
+    path::{Path, PathBuf},
 };
 
 use sha1::{Digest, Sha1};
 use zip::ZipArchive;
 
-use crate::system::config::ServerFork;
 use anyhow::anyhow;
+
+use crate::system::server_info::ServerFork;
 
 #[derive(Debug, Clone)]
 pub enum DetectServerInfoError {
@@ -18,8 +20,6 @@ pub enum DetectServerInfoError {
     UnknownServerFork,
     GameVersionNotFound,
 }
-
-impl Error for DetectServerInfoError {}
 
 impl Display for DetectServerInfoError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -38,6 +38,64 @@ impl Display for DetectServerInfoError {
             }
         }
     }
+}
+
+impl Error for DetectServerInfoError {}
+
+#[derive(Debug)]
+pub enum InvalidServerDirError {
+    MultipleJars,
+    NoJar,
+}
+
+impl Display for InvalidServerDirError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvalidServerDirError::MultipleJars => {
+                write!(f, "multiple .jar files found in server directory")
+            }
+            InvalidServerDirError::NoJar => write!(f, "no .jar file found in server directory"),
+        }
+    }
+}
+
+impl Error for InvalidServerDirError {}
+
+/// Returns the first `.jar` file found in the server directory.
+///
+/// # Errors
+/// - If there are multiple `.jar` files, returns [`InvalidServerDirError::MultipleJars`].
+/// - If no `.jar` file is found, returns [`InvalidServerDirError::NoJar`].
+/// - If trouble reading the directory, returns the underlying [`io::Error`].
+pub fn single_jar(server_dir: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
+    let mut jars = jar_files(server_dir)?.into_iter();
+    let jar = jars.next();
+
+    if jars.next().is_some() {
+        anyhow::bail!(InvalidServerDirError::MultipleJars);
+    }
+
+    jar.ok_or(anyhow::anyhow!(InvalidServerDirError::NoJar))
+}
+
+/// Returns all `.jar` files found in the server directory.
+pub fn jar_files(server_dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let server_dir = server_dir.as_ref();
+    let mut jars = vec![];
+
+    for entry in fs::read_dir(server_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension() != Some(std::ffi::OsStr::new("jar")) {
+            continue;
+        }
+        jars.push(path);
+    }
+
+    Ok(jars)
 }
 
 pub fn detect_server_fork(

@@ -10,6 +10,7 @@ use crate::{
         cli::{Cli, Commands, VersionArgs},
         config::Config,
         jar_parser,
+        server_info::ServerInfo,
     },
 };
 use clap::Parser;
@@ -89,6 +90,7 @@ pub async fn run() -> anyhow::Result<()> {
         }
         Commands::AcceptEula { server_name } => generate_eula_accept_file(&server_name)?,
         Commands::Start => todo!(),
+        Commands::Info { server_name } => show_server_info(&server_name)?,
     }
 
     Ok(())
@@ -139,8 +141,8 @@ pub async fn list_mods(
         .map(jar_parser::calculate_hash)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let config = Config::load_or_create(server_name)?;
-    let game_versions = [config.game_version.as_str()];
+    let server_info = ServerInfo::new(server_name)?;
+    let game_versions = [server_info.game_version.as_str()];
 
     let (latest_versions_res, old_versions_res) = tokio::join!(
         modrinth::get_latest_versions(reqwest_client, &jar_hashes, &game_versions),
@@ -373,6 +375,13 @@ pub fn generate_eula_accept_file(server_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn show_server_info(server_name: &str) -> anyhow::Result<()> {
+    let config = Config::load_or_create(server_name)?;
+    let server_info = ServerInfo::new(server_name)?;
+    println!("{config}{server_info}");
+    Ok(())
+}
+
 pub async fn update_server_jar(
     server_name: &str,
     version: VersionArgs,
@@ -385,7 +394,7 @@ pub async fn update_server_jar(
     // to prevent multiple jars existing at once
     let server_dir = try_server_dir(server_name)?;
     let mut config = Config::load_or_create(server_name)?;
-    let old_jar_name = config.start_command.get_jar_name();
+    let old_jar_name = config.start_command.jar_name();
     let old_jar_path = server_dir.join(old_jar_name);
 
     println!("Fetching versions...");
