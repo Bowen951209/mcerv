@@ -145,4 +145,6 @@ pub enum Commands {
     AcceptEula { server_name: String },
     /// Start the target server
     Start,
+    /// Show the info of the target server
+    Info { server_name: String },
 }
