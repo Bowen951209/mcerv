@@ -167,7 +167,7 @@ impl Config {
     /// If the config file does not exist, create a new one with default values.
     pub fn load_or_create(server_name: &str) -> anyhow::Result<Config> {
         let server_dir = try_server_dir(server_name)?;
-        let path = server_dir.join("multi_server_config.json");
+        let path = server_dir.join("mcerv_config.json");
 
         if !path.exists() {
             println!("mcerv config file does not exist, creating a new one with default values...");
@@ -183,7 +183,7 @@ impl Config {
     }
 
     pub fn save(&self, server_name: &str) -> anyhow::Result<()> {
-        let path = try_server_dir(server_name)?.join("multi_server_config.json");
+        let path = try_server_dir(server_name)?.join("mcerv_config.json");
         let file = File::create(&path)?;
         serde_json::to_writer_pretty(file, &self)?;
         Ok(())

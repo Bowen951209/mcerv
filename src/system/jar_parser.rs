@@ -30,7 +30,7 @@ impl Display for DetectServerInfoError {
             DetectServerInfoError::UnknownServerFork => {
                 write!(
                     f,
-                    "Detected an unknown server fork. Probably not supported by multi-server"
+                    "Detected an unknown server fork. Probably not supported by mcerv"
                 )
             }
             DetectServerInfoError::GameVersionNotFound => {
