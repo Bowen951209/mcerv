@@ -103,27 +103,64 @@ pub fn detect_server_fork(
 ) -> anyhow::Result<ServerFork> {
     let manifest = parse_manifest(&read_file(archive, "META-INF/MANIFEST.MF")?);
 
-    // !!! Currently support fabric only.
-    if let Some(main_class) = manifest.get("Main-Class") {
-        if main_class.contains("net.fabricmc") {
-            return Ok(ServerFork::Fabric);
-        }
+    let main_class = manifest
+        .get("Main-Class")
+        .ok_or(anyhow!(DetectServerInfoError::MainClassNotFound))?;
 
-        anyhow::bail!(DetectServerInfoError::UnknownServerFork);
+    if main_class.contains("net.fabricmc") {
+        return Ok(ServerFork::Fabric);
+    } else if main_class.contains("net.minecraftforge") {
+        return Ok(ServerFork::Forge);
     }
 
-    anyhow::bail!(DetectServerInfoError::MainClassNotFound);
+    anyhow::bail!(DetectServerInfoError::UnknownServerFork);
 }
 
-pub fn detect_game_version(archive: &mut ZipArchive<BufReader<&File>>) -> anyhow::Result<String> {
-    // Game version property is stored in `install.properties`.
-    let install_properties = parse_properties(&read_file(archive, "install.properties")?);
-
-    if let Some(version) = install_properties.get("game-version") {
-        return Ok(version.clone());
+pub fn detect_game_version(
+    archive: &mut ZipArchive<BufReader<&File>>,
+    fork: ServerFork,
+) -> anyhow::Result<String> {
+    match fork {
+        ServerFork::Fabric => detect_game_version_fabric(archive),
+        ServerFork::Forge => detect_game_version_forge(archive),
     }
+}
 
-    anyhow::bail!(DetectServerInfoError::GameVersionNotFound);
+pub fn detect_game_version_fabric(
+    archive: &mut ZipArchive<BufReader<&File>>,
+) -> anyhow::Result<String> {
+    // Game version property is stored in `install.properties`
+    let mut install_properties = parse_properties(&read_file(archive, "install.properties")?);
+
+    let version = install_properties
+        .remove("fabric-loader") // Use remove to get owned String
+        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
+
+    return Ok(version);
+}
+
+pub fn detect_game_version_forge(
+    archive: &mut ZipArchive<BufReader<&File>>,
+) -> anyhow::Result<String> {
+    // Game version property is stored in `bootstrap-shim.list`
+    // The line format goes like:
+    // HASH net.minecraftforge:forge:1.21.8-58.1.0:server net/minecraftforge/forge/1.21.8-58.1.0/forge-1.21.8-58.1.0-server.jar
+
+    let content = read_file(archive, "bootstrap-shim.list")?;
+    let line = content
+        .lines()
+        .find(|line| line.contains("net.minecraftforge:forge:") && line.contains(":server"))
+        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
+    let long_version = line
+        .split(':')
+        .nth(2)
+        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
+    let game_version = long_version
+        .split('-')
+        .next()
+        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
+
+    Ok(game_version.to_string())
 }
 
 // Calculate the SHA1 hash of the file contents.
@@ -193,7 +230,7 @@ mod tests {
         let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
         let file = File::open(jar_path).unwrap();
         let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
-        let version = detect_game_version(&mut archive).unwrap();
+        let version = detect_game_version(&mut archive, ServerFork::Fabric).unwrap();
 
         assert_eq!(version, "1.21.8")
     }

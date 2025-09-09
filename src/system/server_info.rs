@@ -9,9 +9,10 @@ use zip::ZipArchive;
 
 use crate::{server_dir, system::jar_parser};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ServerFork {
-    Fabric, // will support more in the future
+    Fabric,
+    Forge,
 }
 
 #[derive(Debug)]
@@ -27,7 +28,7 @@ impl ServerInfo {
         let mut archive = ZipArchive::new(BufReader::new(&jar_file))?;
 
         let server_fork = jar_parser::detect_server_fork(&mut archive)?;
-        let game_version = jar_parser::detect_game_version(&mut archive)?;
+        let game_version = jar_parser::detect_game_version(&mut archive, server_fork)?;
 
         Ok(Self {
             server_fork,
