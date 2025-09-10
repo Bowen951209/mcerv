@@ -47,13 +47,11 @@ pub trait Fork {
     async fn install(
         server_name: &str,
         version: Self::Version,
-        request_client: &Client,
+        client: &Client,
     ) -> anyhow::Result<String>;
 
-    async fn fetch_availables(
-        config: Self::FetchConfig,
-        request_client: &Client,
-    ) -> anyhow::Result<String>;
+    async fn fetch_availables(config: Self::FetchConfig, client: &Client)
+    -> anyhow::Result<String>;
 }
 
 pub struct Fabric;
@@ -81,28 +79,21 @@ impl Fork for Fabric {
     async fn install(
         server_name: &str,
         version: Self::Version,
-        request_client: &Client,
+        client: &Client,
     ) -> anyhow::Result<String> {
         let server_dir = server_dir(server_name);
 
-        fabric_meta::download_server(
-            request_client,
-            &version.0,
-            &version.1,
-            &version.2,
-            &server_dir,
-        )
-        .await
+        fabric_meta::download_server(client, &version.0, &version.1, &version.2, &server_dir).await
     }
 
-    async fn fetch_availables(all: bool, request_client: &Client) -> anyhow::Result<String> {
+    async fn fetch_availables(all: bool, client: &Client) -> anyhow::Result<String> {
         let mode = if all {
             PrintVersionMode::All
         } else {
             PrintVersionMode::StableOnly
         };
 
-        fabric_meta::versions(request_client, mode).await
+        fabric_meta::versions(client, mode).await
     }
 }
 
@@ -141,12 +132,12 @@ impl Fork for Forge {
     async fn install(
         _server_name: &str,
         _version: Self::Version,
-        _request_client: &Client,
+        _client: &Client,
     ) -> anyhow::Result<String> {
         todo!()
     }
 
-    async fn fetch_availables(_config: (), _request_client: &Client) -> anyhow::Result<String> {
+    async fn fetch_availables(_config: (), _client: &Client) -> anyhow::Result<String> {
         todo!()
     }
 }
