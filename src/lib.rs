@@ -311,15 +311,9 @@ pub async fn install(
     let filename = match command {
         InstallCommands::Fabric { version_args } => {
             println!("Fetching versions...");
-            let (game_version, loader_version, installer_version) =
-                version_args.versions(&client).await?;
+            let versions = version_args.versions(&client).await?;
             println!("Downloading server jar...");
-            forks::Fabric::install(
-                &server_name,
-                (game_version, loader_version, installer_version),
-                &client,
-            )
-            .await?
+            forks::Fabric::install(&server_name, versions, &client).await?
         }
         InstallCommands::Forge {} => {
             todo!()
