@@ -307,19 +307,7 @@ pub async fn install(
     }
 
     let start = Instant::now();
-
-    let filename = match command {
-        InstallCommands::Fabric { version_args } => {
-            println!("Fetching versions...");
-            let versions = version_args.versions(&client).await?;
-            println!("Downloading server jar...");
-            forks::Fabric::install(&server_name, versions, &client).await?
-        }
-        InstallCommands::Forge {} => {
-            todo!()
-        }
-    };
-
+    let filename = install_from_command(&server_name, command, client).await?;
     println!("Download complete. Duration: {:?}", start.elapsed());
 
     let config = Config::new(server_dir.join(filename))?;
@@ -393,18 +381,7 @@ pub async fn update_server_jar(
     let old_jar_name = config.start_command.jar_name();
     let old_jar_path = server_dir.join(old_jar_name);
 
-    let filename = match command {
-        InstallCommands::Fabric { version_args } => {
-            println!("Fetching versions...");
-            let versions = version_args.versions(&client).await?;
-
-            println!("Downloading server jar...");
-            forks::Fabric::install(&server_name, versions, &client).await?
-        }
-        InstallCommands::Forge {} => {
-            todo!()
-        }
-    };
+    let filename = install_from_command(server_name, command, client).await?;
 
     println!("Deleting old server jar...");
     fs::remove_file(&old_jar_path)?;
@@ -453,4 +430,22 @@ pub fn instances_dir() -> PathBuf {
 
 pub fn proj_dirs() -> ProjectDirs {
     ProjectDirs::from("", "", "mcerv").expect("Unable to determine project directory")
+}
+
+async fn install_from_command(
+    server_name: &str,
+    command: InstallCommands,
+    client: &Client,
+) -> anyhow::Result<String> {
+    match command {
+        InstallCommands::Fabric { version_args } => {
+            println!("Fetching versions...");
+            let versions = version_args.versions(&client).await?;
+            println!("Downloading server jar...");
+            forks::Fabric::install(&server_name, versions, &client).await
+        }
+        InstallCommands::Forge {} => {
+            todo!()
+        }
+    }
 }
