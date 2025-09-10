@@ -32,7 +32,7 @@ pub async fn download_server(
     Ok(filename)
 }
 
-pub async fn print_versions(client: &reqwest::Client, print_mode: PrintVersionMode) -> Result<()> {
+pub async fn versions(client: &reqwest::Client, print_mode: PrintVersionMode) -> Result<String> {
     let mut table = Table::new();
 
     table.add_row(row![
@@ -60,9 +60,8 @@ pub async fn print_versions(client: &reqwest::Client, print_mode: PrintVersionMo
             installer_versions.get(i).unwrap_or(&"-".to_string())
         ]);
     }
-    table.printstd();
 
-    Ok(())
+    Ok(table.to_string())
 }
 
 pub async fn fetch_latest_stable_versions(

@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+use sha1::{Digest, Sha1};
 use std::{
     collections::HashMap,
     error::Error,
@@ -6,41 +8,7 @@ use std::{
     io::{self, BufReader, Read},
     path::{Path, PathBuf},
 };
-
-use sha1::{Digest, Sha1};
 use zip::ZipArchive;
-
-use anyhow::anyhow;
-
-use crate::system::server_info::ServerFork;
-
-#[derive(Debug, Clone)]
-pub enum DetectServerInfoError {
-    MainClassNotFound,
-    UnknownServerFork,
-    GameVersionNotFound,
-}
-
-impl Display for DetectServerInfoError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DetectServerInfoError::MainClassNotFound => {
-                write!(f, "Main-Class not found in MANIFEST.MF")
-            }
-            DetectServerInfoError::UnknownServerFork => {
-                write!(
-                    f,
-                    "Detected an unknown server fork. Probably not supported by mcerv"
-                )
-            }
-            DetectServerInfoError::GameVersionNotFound => {
-                write!(f, "Game version not found in install.properties")
-            }
-        }
-    }
-}
-
-impl Error for DetectServerInfoError {}
 
 #[derive(Debug)]
 pub enum InvalidServerDirError {
@@ -98,71 +66,6 @@ pub fn jar_files(server_dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
     Ok(jars)
 }
 
-pub fn detect_server_fork(
-    archive: &mut ZipArchive<BufReader<&File>>,
-) -> anyhow::Result<ServerFork> {
-    let manifest = parse_manifest(&read_file(archive, "META-INF/MANIFEST.MF")?);
-
-    let main_class = manifest
-        .get("Main-Class")
-        .ok_or(anyhow!(DetectServerInfoError::MainClassNotFound))?;
-
-    if main_class.contains("net.fabricmc") {
-        return Ok(ServerFork::Fabric);
-    } else if main_class.contains("net.minecraftforge") {
-        return Ok(ServerFork::Forge);
-    }
-
-    anyhow::bail!(DetectServerInfoError::UnknownServerFork);
-}
-
-pub fn detect_game_version(
-    archive: &mut ZipArchive<BufReader<&File>>,
-    fork: ServerFork,
-) -> anyhow::Result<String> {
-    match fork {
-        ServerFork::Fabric => detect_game_version_fabric(archive),
-        ServerFork::Forge => detect_game_version_forge(archive),
-    }
-}
-
-pub fn detect_game_version_fabric(
-    archive: &mut ZipArchive<BufReader<&File>>,
-) -> anyhow::Result<String> {
-    // Game version property is stored in `install.properties`
-    let mut install_properties = parse_properties(&read_file(archive, "install.properties")?);
-
-    let version = install_properties
-        .remove("fabric-loader") // Use remove to get owned String
-        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
-
-    return Ok(version);
-}
-
-pub fn detect_game_version_forge(
-    archive: &mut ZipArchive<BufReader<&File>>,
-) -> anyhow::Result<String> {
-    // Game version property is stored in `bootstrap-shim.list`
-    // The line format goes like:
-    // HASH net.minecraftforge:forge:1.21.8-58.1.0:server net/minecraftforge/forge/1.21.8-58.1.0/forge-1.21.8-58.1.0-server.jar
-
-    let content = read_file(archive, "bootstrap-shim.list")?;
-    let line = content
-        .lines()
-        .find(|line| line.contains("net.minecraftforge:forge:") && line.contains(":server"))
-        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
-    let long_version = line
-        .split(':')
-        .nth(2)
-        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
-    let game_version = long_version
-        .split('-')
-        .next()
-        .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
-
-    Ok(game_version.to_string())
-}
-
 // Calculate the SHA1 hash of the file contents.
 pub fn calculate_hash(file: &mut File) -> std::io::Result<String> {
     let mut hasher = Sha1::new();
@@ -172,7 +75,7 @@ pub fn calculate_hash(file: &mut File) -> std::io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn read_file(
+pub fn read_file(
     archive: &mut ZipArchive<BufReader<&File>>,
     file_name: &str,
 ) -> anyhow::Result<String> {
@@ -186,20 +89,7 @@ fn read_file(
     Ok(content)
 }
 
-fn parse_manifest(content: &str) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-
-    // Manifest format is `key: value`
-    for line in content.lines() {
-        if let Some((key, value)) = line.split_once(": ") {
-            map.insert(key.to_string(), value.to_string());
-        }
-    }
-
-    map
-}
-
-fn parse_properties(content: &str) -> HashMap<String, String> {
+pub fn parse_properties(content: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
 
     // Properties format is `key=value`
@@ -212,26 +102,15 @@ fn parse_properties(content: &str) -> HashMap<String, String> {
     map
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_detect_fabric_fork() {
-        let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
-        let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
-        let fork = detect_server_fork(&mut archive).unwrap();
+pub fn parse_manifest(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
 
-        assert_eq!(fork, ServerFork::Fabric)
+    // Manifest format is `key: value`
+    for line in content.lines() {
+        if let Some((key, value)) = line.split_once(": ") {
+            map.insert(key.to_string(), value.to_string());
+        }
     }
 
-    #[test]
-    fn test_detect_game_version() {
-        let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
-        let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
-        let version = detect_game_version(&mut archive, ServerFork::Fabric).unwrap();
-
-        assert_eq!(version, "1.21.8")
-    }
+    map
 }

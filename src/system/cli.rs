@@ -79,15 +79,10 @@ pub enum Commands {
         #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
         featured: bool,
     },
-    /// List Minecraft, Fabric Loader, and Fabric Installer versions from fabric-meta
-    FetchFabric {
-        #[arg(long, action = ArgAction::SetTrue,
-             default_value_t = true, conflicts_with = "all")]
-        stable_only: bool,
-
-        #[arg(long, action = ArgAction::SetTrue,
-             default_value_t = false, conflicts_with = "stable_only")]
-        all: bool,
+    /// List availible versions for the target Minecraft server fork
+    Fetch {
+        #[command(subcommand)]
+        command: FetchCommands,
     },
     /// Search for a mod with the given name
     SearchMod {
@@ -118,11 +113,10 @@ pub enum Commands {
         java_home: Option<String>,
     },
     /// Install the server with the given versions
-    /// currently only for fabric
     Install {
+        #[command(subcommand)]
+        command: InstallCommands,
         server_name: String,
-        #[command(flatten)]
-        version_args: VersionArgs,
         #[command(flatten)]
         accept_eula: YesArgs,
     },
@@ -135,11 +129,10 @@ pub enum Commands {
     /// Generate a start script for the target server
     GenStartScript { server_name: String },
     /// Replace the server jar with the specified version
-    /// currently only for fabric
     UpdateServerJar {
+        #[command(subcommand)]
+        command: InstallCommands,
         server_name: String,
-        #[command(flatten)]
-        version_args: VersionArgs,
     },
     /// Accept the EULA for the target server. This will create or modify the eula.txt file
     AcceptEula { server_name: String },
@@ -147,4 +140,29 @@ pub enum Commands {
     Start,
     /// Show the info of the target server
     Info { server_name: String },
+}
+
+#[derive(Subcommand)]
+pub enum FetchCommands {
+    /// List available versions for Fabric servers with fabric-meta
+    Fabric {
+        /// List only stable versions
+        #[arg(long, action = ArgAction::SetTrue, default_value_t = true)]
+        stable_only: bool,
+        /// List all versions (including pre-releases)
+        #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
+        all: bool,
+    },
+    Forge {},
+}
+
+#[derive(Subcommand)]
+pub enum InstallCommands {
+    /// Install a Fabric server
+    Fabric {
+        #[command(flatten)]
+        version_args: VersionArgs,
+    },
+    /// Install a Forge server
+    Forge {},
 }
