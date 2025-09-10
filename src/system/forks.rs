@@ -183,6 +183,7 @@ pub fn detect_game_version(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_detect_fabric_fork() {
         let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
@@ -194,11 +195,31 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_game_version() {
+    fn test_detect_forge_fork() {
+        let jar_path = "testdata/forge-1.21.8-58.1.0-shim.jar";
+        let file = File::open(jar_path).unwrap();
+        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
+        let fork = detect_server_fork(&mut archive).unwrap();
+
+        assert_eq!(fork, ServerFork::Forge)
+    }
+
+    #[test]
+    fn test_detect_game_version_fabric() {
         let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
         let file = File::open(jar_path).unwrap();
         let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
         let version = detect_game_version(&mut archive, ServerFork::Fabric).unwrap();
+
+        assert_eq!(version, "1.21.8")
+    }
+
+    #[test]
+    fn test_detect_game_version_forge() {
+        let jar_path = "testdata/forge-1.21.8-58.1.0-shim.jar";
+        let file = File::open(jar_path).unwrap();
+        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
+        let version = detect_game_version(&mut archive, ServerFork::Forge).unwrap();
 
         assert_eq!(version, "1.21.8")
     }
