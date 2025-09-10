@@ -72,7 +72,7 @@ impl Fork for Fabric {
         let mut install_properties = jar_parser::parse_properties(&content);
 
         let version = install_properties
-            .remove("fabric-loader") // Use remove to get owned String
+            .remove("game-version") // Use remove to get owned String
             .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
 
         return Ok(version);
