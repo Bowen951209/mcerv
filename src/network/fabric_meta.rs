@@ -5,7 +5,7 @@ use prettytable::{Table, row};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 
-use crate::network::download_file;
+use crate::network::{download_file, fetch_text};
 
 #[derive(Copy, Clone)]
 pub enum PrintVersionMode {
@@ -113,14 +113,8 @@ async fn get_versions(
     )
 }
 
-async fn fetch_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> anyhow::Result<T> {
-    let response = client.get(url).send().await?;
-
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to fetch {}: {}", url, response.status());
-    }
-
-    let text = response.text().await?;
+async fn fetch_json<T: DeserializeOwned>(client: &Client, url: &str) -> anyhow::Result<T> {
+    let text = fetch_text(client, url).await?;
     let result = serde_json::from_str::<T>(&text)?;
     Ok(result)
 }

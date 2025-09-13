@@ -104,7 +104,7 @@ pub struct Forge;
 
 impl Fork for Forge {
     type FetchConfig = ();
-    type Version = ();
+    type Version = String;
 
     fn is_this_fork(main_class: &str) -> bool {
         main_class.contains("net.minecraftforge")
@@ -133,11 +133,12 @@ impl Fork for Forge {
     }
 
     async fn install(
-        _server_name: &str,
-        _version: Self::Version,
-        _client: &Client,
+        server_name: &str,
+        version: Self::Version,
+        client: &Client,
     ) -> anyhow::Result<String> {
-        todo!()
+        let server_dir = server_dir(server_name);
+        forge_meta::download_installer(client, &version, server_dir).await
     }
 
     async fn fetch_availables(_config: (), client: &Client) -> anyhow::Result<String> {

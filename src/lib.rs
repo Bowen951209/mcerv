@@ -7,7 +7,7 @@ use crate::{
         modrinth::{self, SearchIndex},
     },
     system::{
-        cli::{Cli, Commands, FetchCommands, InstallCommands},
+        cli::{Cli, Commands, FetchCommands, InstallCommands, Versions},
         config::Config,
         forks::{self, Fork},
         jar_parser,
@@ -445,8 +445,11 @@ async fn install_from_command(
             println!("Downloading server jar...");
             forks::Fabric::install(&server_name, versions, &client).await
         }
-        InstallCommands::Forge {} => {
-            todo!()
+        InstallCommands::Forge { version_args } => {
+            println!("Fetching versions...");
+            let versions = version_args.versions(&client).await?;
+            println!("Downloading server jar...");
+            forks::Forge::install(&server_name, versions, &client).await
         }
     }
 }
