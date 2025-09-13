@@ -55,17 +55,18 @@ pub async fn run() -> anyhow::Result<()> {
         Commands::FetchModVersions { name, featured } => {
             fetch_mod_versions(&name, featured, &Client::new()).await?;
         }
-        Commands::Fetch { command } => match command {
-            FetchCommands::Fabric {
-                all,
-                stable_only: _,
-            } => {
-                forks::Fabric::fetch_availables(all, &Client::new()).await?;
-            }
-            FetchCommands::Forge {} => {
-                todo!()
-            }
-        },
+        Commands::Fetch { command } => {
+            let s = match command {
+                FetchCommands::Fabric {
+                    all,
+                    stable_only: _,
+                } => forks::Fabric::fetch_availables(all, &Client::new()).await?,
+                FetchCommands::Forge {} => {
+                    forks::Forge::fetch_availables((), &Client::new()).await?
+                }
+            };
+            println!("{s}");
+        }
         Commands::SearchMod {
             name,
             facets,

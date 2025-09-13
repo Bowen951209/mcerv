@@ -1,5 +1,8 @@
 use crate::{
-    network::fabric_meta::{self, PrintVersionMode},
+    network::{
+        fabric_meta::{self, PrintVersionMode},
+        forge_meta,
+    },
     server_dir,
     system::{jar_parser, server_info::ServerFork},
 };
@@ -137,8 +140,8 @@ impl Fork for Forge {
         todo!()
     }
 
-    async fn fetch_availables(_config: (), _client: &Client) -> anyhow::Result<String> {
-        todo!()
+    async fn fetch_availables(_config: (), client: &Client) -> anyhow::Result<String> {
+        forge_meta::versions(client).await
     }
 }
 

@@ -6,6 +6,7 @@ use std::{
 use reqwest::StatusCode;
 
 pub mod fabric_meta;
+pub mod forge_meta;
 pub mod modrinth;
 
 use tokio::task::JoinSet;
