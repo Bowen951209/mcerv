@@ -149,7 +149,7 @@ pub enum FetchCommands {
         /// List only stable versions
         #[arg(long, action = ArgAction::SetTrue, default_value_t = true)]
         stable_only: bool,
-        /// List all versions (including pre-releases)
+        /// List all versions, stable and unstable.
         #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
         all: bool,
     },
