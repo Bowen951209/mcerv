@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use anyhow::{Result, anyhow};
+use anyhow::anyhow;
 use prettytable::{Table, row};
+use reqwest::Client;
 use serde::de::DeserializeOwned;
 
 use crate::network::download_file;
@@ -13,12 +14,12 @@ pub enum PrintVersionMode {
 }
 
 pub async fn download_server(
-    client: &reqwest::Client,
+    client: &Client,
     game_version: &str,
     fabric_loader_version: &str,
     installer_version: &str,
     save_dir_path: impl AsRef<Path>,
-) -> Result<String> {
+) -> anyhow::Result<String> {
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{game_version}/{fabric_loader_version}/{installer_version}/server/jar"
     );
@@ -32,7 +33,10 @@ pub async fn download_server(
     Ok(filename)
 }
 
-pub async fn versions(client: &reqwest::Client, print_mode: PrintVersionMode) -> Result<String> {
+pub async fn versions(
+    client: &reqwest::Client,
+    print_mode: PrintVersionMode,
+) -> anyhow::Result<String> {
     let mut table = Table::new();
 
     table.add_row(row![
@@ -66,7 +70,7 @@ pub async fn versions(client: &reqwest::Client, print_mode: PrintVersionMode) ->
 
 pub async fn fetch_latest_stable_versions(
     client: &reqwest::Client,
-) -> Result<(String, String, String)> {
+) -> anyhow::Result<(String, String, String)> {
     let (minecraft_versions, fabric_loader_versions, installer_versions) =
         get_versions(client).await?;
 
@@ -97,7 +101,7 @@ pub async fn fetch_latest_stable_versions(
 
 async fn get_versions(
     client: &reqwest::Client,
-) -> Result<(
+) -> anyhow::Result<(
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
@@ -109,7 +113,7 @@ async fn get_versions(
     )
 }
 
-async fn fetch_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> Result<T> {
+async fn fetch_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> anyhow::Result<T> {
     let response = client.get(url).send().await?;
 
     if !response.status().is_success() {
