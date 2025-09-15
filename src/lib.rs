@@ -249,16 +249,8 @@ pub async fn search_mod(
     limit: Option<usize>,
     client: &Client,
 ) -> anyhow::Result<()> {
-    // Add game fabric facets to the search
-    let fabric_facet = "categories:fabric";
-    let facets = facets
-        .iter()
-        .map(|f| f.as_str())
-        .chain(std::iter::once(fabric_facet))
-        .collect::<Vec<_>>();
-
+    let facets = facets.iter().map(|f| f.as_str()).collect::<Vec<_>>();
     let response = modrinth::search(client, name, &facets, index, limit).await?;
-
     println!("{response}");
 
     Ok(())

@@ -119,8 +119,7 @@ pub enum Commands {
         ///
         /// See https://docs.modrinth.com/api/operations/searchprojects for details.
         ///
-        /// Note: `mcerv` automatically adds `server_side:required`, `server_side:optional`,
-        /// `project_type:mod`, and sets `categories` according to your fork. (TODO: #19)
+        /// Note: `mcerv` automatically adds `server_side:required` & `server_side:optional`.
         #[arg(long, num_args = 0..)]
         facets: Vec<String>,
         /// The sorting method used for sorting search results
