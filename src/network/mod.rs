@@ -3,15 +3,16 @@ use std::{
     path::PathBuf,
 };
 
-use reqwest::StatusCode;
+use reqwest::{Client, StatusCode};
 
 pub mod fabric_meta;
+pub mod forge_meta;
 pub mod modrinth;
 
 use tokio::task::JoinSet;
 
 pub async fn download_file(
-    client: &reqwest::Client,
+    client: &Client,
     url: &impl AsRef<str>,
     save_path: &impl AsRef<std::path::Path>,
 ) -> anyhow::Result<()> {
@@ -36,7 +37,7 @@ pub async fn download_file(
 }
 
 pub async fn download_files(
-    client: &reqwest::Client,
+    client: &Client,
     downloads: impl Iterator<Item = (String, PathBuf)>, // (url, save_path) pairs
 ) -> anyhow::Result<()> {
     let mut join_set = JoinSet::new();
@@ -51,6 +52,17 @@ pub async fn download_files(
     }
 
     Ok(())
+}
+
+pub async fn fetch_text(client: &Client, url: &str) -> anyhow::Result<String> {
+    let response = client.get(url).send().await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("Failed to fetch {}: {}", url, response.status());
+    }
+
+    let text = response.text().await?;
+    Ok(text)
 }
 
 fn display_json_value(json: &serde_json::Value, key: &str) -> String {

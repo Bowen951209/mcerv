@@ -7,8 +7,9 @@ use crate::{
         modrinth::{self, SearchIndex},
     },
     system::{
-        cli::{Cli, Commands, VersionArgs},
+        cli::{Cli, Commands, FetchCommands, InstallCommands, Versions},
         config::Config,
+        forks::{self, Fork},
         jar_parser,
         server_info::ServerInfo,
     },
@@ -54,11 +55,17 @@ pub async fn run() -> anyhow::Result<()> {
         Commands::FetchModVersions { name, featured } => {
             fetch_mod_versions(&name, featured, &Client::new()).await?;
         }
-        Commands::FetchFabric {
-            stable_only: _,
-            all,
-        } => {
-            fetch_fabric_versions(all, &Client::new()).await?;
+        Commands::Fetch { command } => {
+            let s = match command {
+                FetchCommands::Fabric {
+                    all,
+                    stable_only: _,
+                } => forks::Fabric::fetch_availables(all, &Client::new()).await?,
+                FetchCommands::Forge {} => {
+                    forks::Forge::fetch_availables((), &Client::new()).await?
+                }
+            };
+            println!("{s}");
         }
         Commands::SearchMod {
             name,
@@ -73,20 +80,20 @@ pub async fn run() -> anyhow::Result<()> {
             java_home,
         } => set_config(&server_name, max_memory, min_memory, java_home)?,
         Commands::Install {
+            command,
             server_name,
-            version_args,
             accept_eula,
-        } => install_server(&server_name, version_args, accept_eula.yes, &Client::new()).await?,
+        } => install(command, &server_name, accept_eula.yes, &Client::new()).await?,
         Commands::InstallMod {
             server_name,
             mod_id,
         } => install_mod(&server_name, &mod_id, &Client::new()).await?,
         Commands::GenStartScript { server_name } => generate_start_script(&server_name)?,
         Commands::UpdateServerJar {
+            command,
             server_name,
-            version_args,
         } => {
-            update_server_jar(&server_name, version_args, &Client::new()).await?;
+            update_server_jar(command, &server_name, &Client::new()).await?;
         }
         Commands::AcceptEula { server_name } => generate_eula_accept_file(&server_name)?,
         Commands::Start => todo!(),
@@ -119,11 +126,7 @@ pub fn list_servers() {
 /// List installed mods in the target server's mods directory.
 /// Will also check for updates on Modrinth.
 /// If there are updates available, will ask the user if they want to update.
-pub async fn list_mods(
-    server_name: &str,
-    update_arg: bool,
-    reqwest_client: &Client,
-) -> anyhow::Result<()> {
+pub async fn list_mods(server_name: &str, update_arg: bool, client: &Client) -> anyhow::Result<()> {
     let mods_dir = try_mods_dir(server_name)?;
 
     let jar_paths = fs::read_dir(&mods_dir)?
@@ -145,18 +148,16 @@ pub async fn list_mods(
     let game_versions = [server_info.game_version.as_str()];
 
     let (latest_versions_res, old_versions_res) = tokio::join!(
-        modrinth::get_latest_versions(reqwest_client, &jar_hashes, &game_versions),
-        modrinth::get_versions(reqwest_client, &jar_hashes)
+        modrinth::get_latest_versions(client, &jar_hashes, &game_versions),
+        modrinth::get_versions(client, &jar_hashes)
     );
 
     let latest_versions = latest_versions_res?;
     let old_versions = old_versions_res?;
 
-    let slug_map = modrinth::get_project_slug_map(
-        reqwest_client,
-        old_versions.iter().map(|v| v.project_id.as_str()),
-    )
-    .await?;
+    let slug_map =
+        modrinth::get_project_slug_map(client, old_versions.iter().map(|v| v.project_id.as_str()))
+            .await?;
 
     let mut available_updates = Vec::new();
 
@@ -200,7 +201,7 @@ pub async fn list_mods(
         (url, save_path)
     });
 
-    network::download_files(reqwest_client, downloads).await?;
+    network::download_files(client, downloads).await?;
 
     // Delete old jar files
     for (jar_path, _) in &available_updates {
@@ -218,15 +219,15 @@ pub async fn list_mods(
 pub async fn fetch_mod_versions(
     project_slug: &str,
     featured: bool,
-    reqwest_client: &Client,
+    client: &Client,
 ) -> anyhow::Result<()> {
-    let response = modrinth::get_project_versions(reqwest_client, project_slug, featured).await?;
+    let response = modrinth::get_project_versions(client, project_slug, featured).await?;
 
     println!("{response}");
     Ok(())
 }
 
-pub async fn fetch_fabric_versions(all: bool, reqwest_client: &Client) -> anyhow::Result<()> {
+pub async fn fetch_fabric_versions(all: bool, client: &Client) -> anyhow::Result<()> {
     let start = Instant::now();
 
     let mode = if all {
@@ -235,7 +236,7 @@ pub async fn fetch_fabric_versions(all: bool, reqwest_client: &Client) -> anyhow
         PrintVersionMode::StableOnly
     };
 
-    fabric_meta::print_versions(reqwest_client, mode).await?;
+    fabric_meta::versions(client, mode).await?;
     println!("Took {:?}", start.elapsed());
 
     Ok(())
@@ -246,18 +247,10 @@ pub async fn search_mod(
     facets: &[String],
     index: Option<SearchIndex>,
     limit: Option<usize>,
-    reqwest_client: &Client,
+    client: &Client,
 ) -> anyhow::Result<()> {
-    // Add game fabric facets to the search
-    let fabric_facet = "categories:fabric";
-    let facets = facets
-        .iter()
-        .map(|f| f.as_str())
-        .chain(std::iter::once(fabric_facet))
-        .collect::<Vec<_>>();
-
-    let response = modrinth::search(reqwest_client, name, &facets, index, limit).await?;
-
+    let facets = facets.iter().map(|f| f.as_str()).collect::<Vec<_>>();
+    let response = modrinth::search(client, name, &facets, index, limit).await?;
     println!("{response}");
 
     Ok(())
@@ -288,16 +281,16 @@ pub fn set_config(
     Ok(())
 }
 
-pub async fn install_server(
+pub async fn install(
+    command: InstallCommands,
     server_name: &str,
-    version: VersionArgs,
-    eula_arg: bool,
-    reqwest_client: &Client,
+    accept_eula: bool,
+    client: &Client,
 ) -> anyhow::Result<()> {
-    let eula_agreed = eula_arg || Confirm::new()
-        .with_prompt("Do you agree to Minecraft server EULA? Please ensure you have read and understood the EULA at: https://aka.ms/MinecraftEULA")
-        .interact()
-        .unwrap_or(false);
+    let eula_agreed = accept_eula || Confirm::new()
+                .with_prompt("Do you agree to Minecraft server EULA? Please ensure you have read and understood the EULA at: https://aka.ms/MinecraftEULA")
+                .interact()
+                .unwrap_or(false);
 
     let server_dir = server_dir(server_name);
     fs::create_dir_all(&server_dir)?;
@@ -307,41 +300,25 @@ pub async fn install_server(
     }
 
     let start = Instant::now();
-
-    println!("Fetching versions...");
-    let (game_version, loader_version, installer_version) =
-        version.versions(reqwest_client).await?;
-
-    println!("Downloading server jar...");
-
-    let filename = fabric_meta::download_server(
-        reqwest_client,
-        &game_version,
-        &loader_version,
-        &installer_version,
-        &server_dir,
-    )
-    .await?;
-
+    let filename = install_from_command(server_name, command, client).await?;
     println!("Download complete. Duration: {:?}", start.elapsed());
 
     let config = Config::new(server_dir.join(filename))?;
     config.save(server_name)?;
     println!("Config created and saved");
     println!("Server added: {server_name}");
-
     Ok(())
 }
 
 pub async fn install_mod(
     server_name: &str,
     version_id: &str,
-    reqwest_client: &Client,
+    client: &Client,
 ) -> anyhow::Result<()> {
     println!("Downloading mod version {version_id}...");
     let mods_dir = mods_dir(server_name);
     fs::create_dir_all(&mods_dir)?;
-    let file_name = modrinth::download_version(reqwest_client, version_id, mods_dir).await?;
+    let file_name = modrinth::download_version(client, version_id, mods_dir).await?;
     println!("Mod version downloaded: {file_name}");
 
     Ok(())
@@ -383,9 +360,9 @@ pub fn show_server_info(server_name: &str) -> anyhow::Result<()> {
 }
 
 pub async fn update_server_jar(
+    command: InstallCommands,
     server_name: &str,
-    version: VersionArgs,
-    reqwest_client: &Client,
+    client: &Client,
 ) -> anyhow::Result<()> {
     println!("Updating server jar...");
     let start = Instant::now();
@@ -397,26 +374,13 @@ pub async fn update_server_jar(
     let old_jar_name = config.start_command.jar_name();
     let old_jar_path = server_dir.join(old_jar_name);
 
-    println!("Fetching versions...");
-    let (game_version, loader_version, installer_version) =
-        version.versions(reqwest_client).await?;
-
-    println!("Downloading new server jar...");
-
-    let file_name = fabric_meta::download_server(
-        reqwest_client,
-        &game_version,
-        &loader_version,
-        &installer_version,
-        &server_dir,
-    )
-    .await?;
+    let filename = install_from_command(server_name, command, client).await?;
 
     println!("Deleting old server jar...");
     fs::remove_file(&old_jar_path)?;
 
     println!("Updating config...");
-    config.set_jar(server_dir.join(&file_name))?;
+    config.set_jar(server_dir.join(&filename))?;
 
     config.save(server_name)?;
 
@@ -459,4 +423,25 @@ pub fn instances_dir() -> PathBuf {
 
 pub fn proj_dirs() -> ProjectDirs {
     ProjectDirs::from("", "", "mcerv").expect("Unable to determine project directory")
+}
+
+async fn install_from_command(
+    server_name: &str,
+    command: InstallCommands,
+    client: &Client,
+) -> anyhow::Result<String> {
+    match command {
+        InstallCommands::Fabric { version_args } => {
+            println!("Fetching versions...");
+            let versions = version_args.versions(client).await?;
+            println!("Downloading server jar...");
+            forks::Fabric::install(server_name, versions, client).await
+        }
+        InstallCommands::Forge { version_args } => {
+            println!("Fetching versions...");
+            let versions = version_args.versions(client).await?;
+            println!("Downloading server jar...");
+            forks::Forge::install(server_name, versions, client).await
+        }
+    }
 }

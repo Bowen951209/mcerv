@@ -1,10 +1,11 @@
 use std::path::Path;
 
-use anyhow::{Result, anyhow};
+use anyhow::anyhow;
 use prettytable::{Table, row};
+use reqwest::Client;
 use serde::de::DeserializeOwned;
 
-use crate::network::download_file;
+use crate::network::{download_file, fetch_text};
 
 #[derive(Copy, Clone)]
 pub enum PrintVersionMode {
@@ -13,12 +14,12 @@ pub enum PrintVersionMode {
 }
 
 pub async fn download_server(
-    client: &reqwest::Client,
+    client: &Client,
     game_version: &str,
     fabric_loader_version: &str,
     installer_version: &str,
     save_dir_path: impl AsRef<Path>,
-) -> Result<String> {
+) -> anyhow::Result<String> {
     let url = format!(
         "https://meta.fabricmc.net/v2/versions/loader/{game_version}/{fabric_loader_version}/{installer_version}/server/jar"
     );
@@ -32,7 +33,10 @@ pub async fn download_server(
     Ok(filename)
 }
 
-pub async fn print_versions(client: &reqwest::Client, print_mode: PrintVersionMode) -> Result<()> {
+pub async fn versions(
+    client: &reqwest::Client,
+    print_mode: PrintVersionMode,
+) -> anyhow::Result<String> {
     let mut table = Table::new();
 
     table.add_row(row![
@@ -60,14 +64,13 @@ pub async fn print_versions(client: &reqwest::Client, print_mode: PrintVersionMo
             installer_versions.get(i).unwrap_or(&"-".to_string())
         ]);
     }
-    table.printstd();
 
-    Ok(())
+    Ok(table.to_string())
 }
 
 pub async fn fetch_latest_stable_versions(
     client: &reqwest::Client,
-) -> Result<(String, String, String)> {
+) -> anyhow::Result<(String, String, String)> {
     let (minecraft_versions, fabric_loader_versions, installer_versions) =
         get_versions(client).await?;
 
@@ -98,7 +101,7 @@ pub async fn fetch_latest_stable_versions(
 
 async fn get_versions(
     client: &reqwest::Client,
-) -> Result<(
+) -> anyhow::Result<(
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
@@ -110,14 +113,8 @@ async fn get_versions(
     )
 }
 
-async fn fetch_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> Result<T> {
-    let response = client.get(url).send().await?;
-
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to fetch {}: {}", url, response.status());
-    }
-
-    let text = response.text().await?;
+async fn fetch_json<T: DeserializeOwned>(client: &Client, url: &str) -> anyhow::Result<T> {
+    let text = fetch_text(client, url).await?;
     let result = serde_json::from_str::<T>(&text)?;
     Ok(result)
 }
