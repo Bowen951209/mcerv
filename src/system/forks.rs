@@ -76,7 +76,7 @@ impl Fork for Fabric {
             .remove("game-version") // Use remove to get owned String
             .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
 
-        return Ok(version);
+        Ok(version)
     }
 
     async fn install(

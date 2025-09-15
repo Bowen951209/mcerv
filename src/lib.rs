@@ -292,19 +292,19 @@ pub async fn install(
                 .interact()
                 .unwrap_or(false);
 
-    let server_dir = server_dir(&server_name);
+    let server_dir = server_dir(server_name);
     fs::create_dir_all(&server_dir)?;
 
     if eula_agreed {
-        generate_eula_accept_file(&server_name)?;
+        generate_eula_accept_file(server_name)?;
     }
 
     let start = Instant::now();
-    let filename = install_from_command(&server_name, command, client).await?;
+    let filename = install_from_command(server_name, command, client).await?;
     println!("Download complete. Duration: {:?}", start.elapsed());
 
     let config = Config::new(server_dir.join(filename))?;
-    config.save(&server_name)?;
+    config.save(server_name)?;
     println!("Config created and saved");
     println!("Server added: {server_name}");
     Ok(())
@@ -433,15 +433,15 @@ async fn install_from_command(
     match command {
         InstallCommands::Fabric { version_args } => {
             println!("Fetching versions...");
-            let versions = version_args.versions(&client).await?;
+            let versions = version_args.versions(client).await?;
             println!("Downloading server jar...");
-            forks::Fabric::install(&server_name, versions, &client).await
+            forks::Fabric::install(server_name, versions, client).await
         }
         InstallCommands::Forge { version_args } => {
             println!("Fetching versions...");
-            let versions = version_args.versions(&client).await?;
+            let versions = version_args.versions(client).await?;
             println!("Downloading server jar...");
-            forks::Forge::install(&server_name, versions, &client).await
+            forks::Forge::install(server_name, versions, client).await
         }
     }
 }
