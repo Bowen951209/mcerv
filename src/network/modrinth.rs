@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_only_fabric_server_side_mods() {
+    async fn test_search_only_server_side_mods() {
         let client = reqwest::Client::new();
         let query = "a";
         let search_response = search(&client, query, &[], None, None).await.unwrap();
