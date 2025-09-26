@@ -26,6 +26,7 @@ jobs:
         with:
           toolchain: stable
           override: true
+          components: rustfmt, clippy
 
       - name: Install dependencies
         run: cargo fetch
