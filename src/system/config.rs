@@ -94,7 +94,7 @@ impl Config {
     }
 
     pub fn create_start_script(&self) -> String {
-        let script = if cfg!(target_os = "windows") {
+        if cfg!(target_os = "windows") {
             // Windows batch script
             let java_home_script = match &self.java_home {
                 Some(java_home) => format!(
@@ -138,9 +138,7 @@ java --version
                 java_home_script = java_home_script,
                 start_command = self.create_start_command()
             )
-        };
-
-        script
+        }
     }
 }
 
