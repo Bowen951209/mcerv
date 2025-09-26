@@ -265,11 +265,11 @@ pub fn set_config(
     let mut config = Config::load_or_create(server_name)?;
 
     if let Some(max_mem) = max_mem {
-        config.start_command.set_max_memory(&max_mem)?;
+        config.max_memory = max_mem;
     }
 
     if let Some(min_mem) = min_mem {
-        config.start_command.set_min_memory(&min_mem)?;
+        config.min_memory = min_mem;
     }
 
     if let Some(java_home) = java_home {
@@ -303,7 +303,7 @@ pub async fn install(
     let filename = install_from_command(server_name, command, client).await?;
     println!("Download complete. Duration: {:?}", start.elapsed());
 
-    let config = Config::new(server_dir.join(filename))?;
+    let config = Config::new_4gb(filename)?;
     config.save(server_name)?;
     println!("Config created and saved");
     println!("Server added: {server_name}");
@@ -325,7 +325,7 @@ pub async fn install_mod(
 }
 
 pub fn generate_start_script(server_name: &str) -> anyhow::Result<()> {
-    let start_script = Config::load_or_create(server_name)?.create_start_script()?;
+    let start_script = Config::load_or_create(server_name)?.create_start_script();
 
     let filename = if cfg!(target_os = "windows") {
         "start_script.bat"
@@ -371,7 +371,7 @@ pub async fn update_server_jar(
     // to prevent multiple jars existing at once
     let server_dir = try_server_dir(server_name)?;
     let mut config = Config::load_or_create(server_name)?;
-    let old_jar_name = config.start_command.jar_name();
+    let old_jar_name = config.jar_name;
     let old_jar_path = server_dir.join(old_jar_name);
 
     let filename = install_from_command(server_name, command, client).await?;
@@ -380,7 +380,7 @@ pub async fn update_server_jar(
     fs::remove_file(&old_jar_path)?;
 
     println!("Updating config...");
-    config.set_jar(server_dir.join(&filename))?;
+    config.jar_name = filename;
 
     config.save(server_name)?;
 
