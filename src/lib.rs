@@ -440,7 +440,7 @@ async fn install_from_command(
         InstallCommands::Forge { version_args } => {
             println!("Fetching versions...");
             let versions = version_args.versions(client).await?;
-            println!("Downloading server jar...");
+            println!("Installing server jar...");
             forks::Forge::install(server_name, versions, client).await
         }
     }
