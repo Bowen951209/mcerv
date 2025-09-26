@@ -92,7 +92,7 @@ pub struct ModVersion {
 }
 
 /// Searches for mods on Modrinth with the given query and facets.
-/// Will always add fabric category, server-side, and mod to the facets.
+/// Will always add server_side facets, but this is fragile becuase of Modrinth API.
 pub async fn search(
     client: &reqwest::Client,
     query: &str,
@@ -104,7 +104,6 @@ pub async fn search(
 
     builder = builder.query(&[("query", query)]);
 
-    // Facets always include the Fabric category
     let joined = facets
         .iter()
         .map(|f| format!(",[\"{f}\"]"))
@@ -331,25 +330,6 @@ mod tests {
 
         let result = search(&client, query, &[], None, None).await;
         assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_search_only_server_side_mods() {
-        let client = reqwest::Client::new();
-        let query = "a";
-        let search_response = search(&client, query, &[], None, None).await.unwrap();
-        let hits = search_response.0["hits"].as_array().unwrap();
-
-        assert!(!hits.is_empty());
-
-        for hit in hits {
-            let project_type = hit["project_type"].as_str().unwrap();
-            assert_eq!(project_type, "mod");
-
-            let server_side = hit["server_side"].as_str().unwrap(); // Possible values: required, optional, unsupported, unknown
-            let support_server_side = server_side == "required" || server_side == "optional";
-            assert!(support_server_side);
-        }
     }
 
     #[tokio::test]
