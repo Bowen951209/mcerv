@@ -354,7 +354,8 @@ pub fn generate_eula_accept_file(server_name: &str) -> anyhow::Result<()> {
 
 pub fn show_server_info(server_name: &str) -> anyhow::Result<()> {
     let config = Config::load_or_create(server_name)?;
-    let server_info = ServerInfo::new(server_name)?;
+    let jar_path = server_dir(server_name).join(&config.jar_name);
+    let server_info = ServerInfo::new(jar_path)?;
     println!("{config}{server_info}");
     Ok(())
 }

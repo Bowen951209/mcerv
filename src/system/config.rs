@@ -1,4 +1,7 @@
-use crate::{system::jar_parser::single_jar, try_server_dir};
+use crate::{
+    system::jar_parser::{InvalidServerDirError, single_jar},
+    try_server_dir,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Display,
@@ -24,8 +27,14 @@ impl Config {
         })
     }
 
-    /// Load the config from the server directory.
-    /// If the config file does not exist, create a new one with default values.
+    /// Loads the configuration from the server directory.
+    /// If the config file does not exist, creates a new one with default values.
+    ///
+    /// Behavior:
+    /// - If exactly one jar is found in the server directory, its name is stored in the config.
+    ///   This allows automatic updates if the user manually replaces the jar file.
+    /// - If multiple jars are found, the config keeps the previously set jar name.
+    ///   If the config is being created for the first time and multiple jars exist, an error is returned.
     pub fn load_or_create(server_name: &str) -> anyhow::Result<Config> {
         let server_dir = try_server_dir(server_name)?;
         let path = server_dir.join("mcerv_config.json");
@@ -41,7 +50,31 @@ impl Config {
         }
 
         let content = fs::read_to_string(path)?;
-        let config: Config = serde_json::from_str(&content)?;
+        let mut config: Config = serde_json::from_str(&content)?;
+
+        // If single jar replaced, update config
+        match single_jar(server_dir) {
+            Ok(new_jar) => {
+                let new_jar_name = new_jar.file_name().unwrap().to_string_lossy();
+                let old_jar_name = &config.jar_name;
+                if old_jar_name != &new_jar_name {
+                    println!(
+                        "Detected jar file change: {old_jar_name} -> {new_jar_name}, updating config..."
+                    );
+                    config.jar_name = new_jar_name.to_string();
+                    config.save(server_name)?;
+                }
+            }
+            Err(e) => {
+                // Multiple jars is fine, just keep the old config
+                if !matches!(
+                    e.downcast_ref::<InvalidServerDirError>(),
+                    Some(InvalidServerDirError::MultipleJars)
+                ) {
+                    return Err(e);
+                }
+            }
+        }
 
         Ok(config)
     }

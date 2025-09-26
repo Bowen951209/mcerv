@@ -2,16 +2,14 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::BufReader,
+    path::Path,
 };
 
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use zip::ZipArchive;
 
-use crate::{
-    server_dir,
-    system::{forks, jar_parser},
-};
+use crate::system::forks;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, ValueEnum)]
 pub enum ServerFork {
@@ -26,8 +24,7 @@ pub struct ServerInfo {
 }
 
 impl ServerInfo {
-    pub fn new(server_name: &str) -> anyhow::Result<Self> {
-        let jar_path = jar_parser::single_jar(server_dir(server_name))?;
+    pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let jar_file = File::open(&jar_path)?;
         let mut archive = ZipArchive::new(BufReader::new(&jar_file))?;
 
