@@ -1,21 +1,11 @@
+use crate::system::{
+    forks::{self, ServerFork},
+    jar_parser,
+};
 use std::{
     fmt::{Debug, Display},
-    fs::File,
-    io::BufReader,
     path::Path,
 };
-
-use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
-use zip::ZipArchive;
-
-use crate::system::forks;
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, ValueEnum)]
-pub enum ServerFork {
-    Fabric,
-    Forge,
-}
 
 #[derive(Debug)]
 pub struct ServerInfo {
@@ -25,8 +15,7 @@ pub struct ServerInfo {
 
 impl ServerInfo {
     pub fn new(jar_path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let jar_file = File::open(&jar_path)?;
-        let mut archive = ZipArchive::new(BufReader::new(&jar_file))?;
+        let mut archive = jar_parser::archive(jar_path)?;
 
         let server_fork = forks::detect_server_fork(&mut archive)?;
         let game_version = forks::detect_game_version(&mut archive, server_fork)?;

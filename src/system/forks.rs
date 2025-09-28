@@ -4,11 +4,16 @@ use crate::{
         forge_meta,
     },
     server_dir,
-    system::{jar_parser, server_info::ServerFork},
+    system::jar_parser,
 };
 use anyhow::anyhow;
 use reqwest::Client;
-use std::{error::Error, fmt::Display, fs::File, io::BufReader, process::Command};
+use std::{
+    error::Error,
+    fmt::Display,
+    io::{Read, Seek},
+    process::Command,
+};
 use zip::ZipArchive;
 
 #[derive(Debug, Clone)]
@@ -39,13 +44,20 @@ impl Display for DetectServerInfoError {
 
 impl Error for DetectServerInfoError {}
 
+#[derive(Debug, Clone, Copy)]
+pub enum ServerFork {
+    Fabric,
+    Forge,
+    Vanilla,
+}
+
 pub trait Fork {
     type FetchConfig;
     type Version;
 
     fn is_this_fork(main_class: &str) -> bool;
 
-    fn game_version(archive: &mut ZipArchive<BufReader<&File>>) -> anyhow::Result<String>;
+    fn game_version<R: Read + Seek>(archive: &mut ZipArchive<R>) -> anyhow::Result<String>;
 
     async fn install(
         server_name: &str,
@@ -57,6 +69,42 @@ pub trait Fork {
     -> anyhow::Result<String>;
 }
 
+#[derive(Debug)]
+pub struct Vanilla;
+
+impl Fork for Vanilla {
+    type FetchConfig = ();
+    type Version = String;
+
+    fn is_this_fork(main_class: &str) -> bool {
+        main_class.contains("net.minecraft.")
+    }
+
+    fn game_version<R: Read + Seek>(archive: &mut ZipArchive<R>) -> anyhow::Result<String> {
+        // Game version property is stored in `version.json`
+        let content = jar_parser::read_file(archive, "version.json")?;
+        let v: serde_json::Value = serde_json::from_str(&content)?;
+        let name = v
+            .get("name")
+            .and_then(|n| n.as_str())
+            .ok_or(anyhow!(DetectServerInfoError::GameVersionNotFound))?;
+
+        Ok(name.to_string())
+    }
+
+    async fn install(
+        _server_name: &str,
+        _version: Self::Version,
+        _client: &Client,
+    ) -> anyhow::Result<String> {
+        todo!()
+    }
+
+    async fn fetch_availables(_config: (), _client: &Client) -> anyhow::Result<String> {
+        todo!()
+    }
+}
+
 pub struct Fabric;
 
 impl Fork for Fabric {
@@ -64,10 +112,10 @@ impl Fork for Fabric {
     type Version = (String, String, String); // (game_version, loader_version, installer_version)
 
     fn is_this_fork(main_class: &str) -> bool {
-        main_class.contains("net.fabricmc")
+        main_class.contains("net.fabricmc.")
     }
 
-    fn game_version(archive: &mut ZipArchive<BufReader<&File>>) -> anyhow::Result<String> {
+    fn game_version<R: Read + Seek>(archive: &mut ZipArchive<R>) -> anyhow::Result<String> {
         // Game version property is stored in `install.properties`
         let content = jar_parser::read_file(archive, "install.properties")?;
         let mut install_properties = jar_parser::parse_properties(&content);
@@ -107,10 +155,10 @@ impl Fork for Forge {
     type Version = String;
 
     fn is_this_fork(main_class: &str) -> bool {
-        main_class.contains("net.minecraftforge")
+        main_class.contains("net.minecraftforge.")
     }
 
-    fn game_version(archive: &mut ZipArchive<BufReader<&File>>) -> anyhow::Result<String> {
+    fn game_version<R: Read + Seek>(archive: &mut ZipArchive<R>) -> anyhow::Result<String> {
         // Game version property is stored in `bootstrap-shim.list`
         // The line format goes like:
         // HASH net.minecraftforge:forge:1.21.8-58.1.0:server net/minecraftforge/forge/1.21.8-58.1.0/forge-1.21.8-58.1.0-server.jar
@@ -172,8 +220,8 @@ impl Fork for Forge {
     }
 }
 
-pub fn detect_server_fork(
-    archive: &mut ZipArchive<BufReader<&File>>,
+pub fn detect_server_fork<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
 ) -> anyhow::Result<ServerFork> {
     let content = jar_parser::read_file(archive, "META-INF/MANIFEST.MF")?;
     let manifest = jar_parser::parse_manifest(&content);
@@ -182,7 +230,9 @@ pub fn detect_server_fork(
         .ok_or(anyhow!(DetectServerInfoError::MainClassNotFound))?;
 
     // loop through all structs that implements Fork
-    if Fabric::is_this_fork(main_class) {
+    if Vanilla::is_this_fork(main_class) {
+        return Ok(ServerFork::Vanilla);
+    } else if Fabric::is_this_fork(main_class) {
         return Ok(ServerFork::Fabric);
     } else if Forge::is_this_fork(main_class) {
         return Ok(ServerFork::Forge);
@@ -191,45 +241,62 @@ pub fn detect_server_fork(
     anyhow::bail!(DetectServerInfoError::UnknownServerFork);
 }
 
-pub fn detect_game_version(
-    archive: &mut ZipArchive<BufReader<&File>>,
+pub fn detect_game_version<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
     fork: ServerFork,
 ) -> anyhow::Result<String> {
     match fork {
         ServerFork::Fabric => Fabric::game_version(archive),
         ServerFork::Forge => Forge::game_version(archive),
+        ServerFork::Vanilla => Vanilla::game_version(archive),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system::jar_parser::archive;
+
+    #[test]
+    fn test_detect_vanilla_fork() {
+        let jar_path = "testdata/vanilla-1.21.8.jar";
+        let mut archive = archive(jar_path).unwrap();
+        let fork = detect_server_fork(&mut archive).unwrap();
+
+        assert!(matches!(fork, ServerFork::Vanilla))
+    }
 
     #[test]
     fn test_detect_fabric_fork() {
         let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
-        let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
+        let mut archive = archive(jar_path).unwrap();
         let fork = detect_server_fork(&mut archive).unwrap();
 
-        assert_eq!(fork, ServerFork::Fabric)
+        assert!(matches!(fork, ServerFork::Fabric));
     }
 
     #[test]
     fn test_detect_forge_fork() {
         let jar_path = "testdata/forge-1.21.8-58.1.0-shim.jar";
-        let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
+        let mut archive = archive(jar_path).unwrap();
         let fork = detect_server_fork(&mut archive).unwrap();
 
-        assert_eq!(fork, ServerFork::Forge)
+        assert!(matches!(fork, ServerFork::Forge));
+    }
+
+    #[test]
+    fn test_detect_game_version_vanilla() {
+        let jar_path = "testdata/vanilla-1.21.8.jar";
+        let mut archive = archive(jar_path).unwrap();
+        let version = detect_game_version(&mut archive, ServerFork::Vanilla).unwrap();
+
+        assert_eq!(version, "1.21.8")
     }
 
     #[test]
     fn test_detect_game_version_fabric() {
         let jar_path = "testdata/fabric-server-mc.1.21.8-loader.0.16.14-launcher.1.0.3.jar";
-        let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
+        let mut archive = archive(jar_path).unwrap();
         let version = detect_game_version(&mut archive, ServerFork::Fabric).unwrap();
 
         assert_eq!(version, "1.21.8")
@@ -238,8 +305,7 @@ mod tests {
     #[test]
     fn test_detect_game_version_forge() {
         let jar_path = "testdata/forge-1.21.8-58.1.0-shim.jar";
-        let file = File::open(jar_path).unwrap();
-        let mut archive = ZipArchive::new(BufReader::new(&file)).unwrap();
+        let mut archive = archive(jar_path).unwrap();
         let version = detect_game_version(&mut archive, ServerFork::Forge).unwrap();
 
         assert_eq!(version, "1.21.8")

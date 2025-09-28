@@ -9,7 +9,7 @@ use crate::{
     system::{
         cli::{Cli, Commands, FetchCommands, InstallCommands, Versions},
         config::Config,
-        forks::{self, Fork},
+        forks::{self, Fork, ServerFork},
         jar_parser,
         server_info::ServerInfo,
     },
@@ -123,10 +123,24 @@ pub fn list_servers() {
     }
 }
 
-/// List installed mods in the target server's mods directory.
-/// Will also check for updates on Modrinth.
-/// If there are updates available, will ask the user if they want to update.
+/// Lists the installed mods in the target server's mods directory.
+/// Also checks for updates on Modrinth.
+/// If updates are available, prompts the user to confirm updating.
+/// If the instance is vanilla and has no mods directory, displays a message to inform the user.
 pub async fn list_mods(server_name: &str, update_arg: bool, client: &Client) -> anyhow::Result<()> {
+    // Check if the server is vanilla
+    let server_jar_name = Config::load_or_create(server_name)?.jar_name;
+    let server_jar_path = server_dir(server_name).join(&server_jar_name);
+    let mut archive = jar_parser::archive(server_jar_path)?;
+    if matches!(
+        forks::detect_server_fork(&mut archive)?,
+        ServerFork::Vanilla
+    ) {
+        println!("{server_name} is a vanilla server and should not have any mods installed.");
+        return Ok(());
+    }
+
+    // Process mods
     let mods_dir = try_mods_dir(server_name)?;
 
     let jar_paths = fs::read_dir(&mods_dir)?
