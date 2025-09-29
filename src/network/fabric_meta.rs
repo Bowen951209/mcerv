@@ -1,17 +1,9 @@
-use std::path::Path;
-
+use crate::network::{PrintVersionMode, download_file, fetch_text};
 use anyhow::anyhow;
 use prettytable::{Table, row};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
-
-use crate::network::{download_file, fetch_text};
-
-#[derive(Copy, Clone)]
-pub enum PrintVersionMode {
-    All,
-    StableOnly,
-}
+use std::path::Path;
 
 pub async fn download_server(
     client: &Client,

@@ -2,14 +2,11 @@ mod network;
 mod system;
 
 use crate::{
-    network::{
-        fabric_meta::{self, PrintVersionMode},
-        modrinth::{self, SearchIndex},
-    },
+    network::modrinth::{self, SearchIndex},
     system::{
         cli::{Cli, Commands, FetchCommands, InstallCommands, Versions},
         config::Config,
-        forks::{self, Fork},
+        forks::{self, Fork, ServerFork},
         jar_parser,
         server_info::ServerInfo,
     },
@@ -57,10 +54,12 @@ pub async fn run() -> anyhow::Result<()> {
         }
         Commands::Fetch { command } => {
             let s = match command {
-                FetchCommands::Fabric {
-                    all,
-                    stable_only: _,
-                } => forks::Fabric::fetch_availables(all, &Client::new()).await?,
+                FetchCommands::Vanilla { filter } => {
+                    forks::Vanilla::fetch_availables(filter.all, &Client::new()).await?
+                }
+                FetchCommands::Fabric { filter } => {
+                    forks::Fabric::fetch_availables(filter.all, &Client::new()).await?
+                }
                 FetchCommands::Forge {} => {
                     forks::Forge::fetch_availables((), &Client::new()).await?
                 }
@@ -123,10 +122,18 @@ pub fn list_servers() {
     }
 }
 
-/// List installed mods in the target server's mods directory.
-/// Will also check for updates on Modrinth.
-/// If there are updates available, will ask the user if they want to update.
+/// Lists the installed mods in the target server's mods directory.
+/// Also checks for updates on Modrinth.
+/// If updates are available, prompts the user to confirm updating.
+/// If the instance is vanilla and has no mods directory, displays a message to inform the user.
 pub async fn list_mods(server_name: &str, update_arg: bool, client: &Client) -> anyhow::Result<()> {
+    // Check if the server is vanilla
+    if is_vanilla(server_name)? {
+        println!("{server_name} is a vanilla server and should not have any mods installed.");
+        return Ok(());
+    }
+
+    // Process mods
     let mods_dir = try_mods_dir(server_name)?;
 
     let jar_paths = fs::read_dir(&mods_dir)?
@@ -227,21 +234,6 @@ pub async fn fetch_mod_versions(
     Ok(())
 }
 
-pub async fn fetch_fabric_versions(all: bool, client: &Client) -> anyhow::Result<()> {
-    let start = Instant::now();
-
-    let mode = if all {
-        PrintVersionMode::All
-    } else {
-        PrintVersionMode::StableOnly
-    };
-
-    fabric_meta::versions(client, mode).await?;
-    println!("Took {:?}", start.elapsed());
-
-    Ok(())
-}
-
 pub async fn search_mod(
     name: &str,
     facets: &[String],
@@ -315,6 +307,12 @@ pub async fn install_mod(
     version_id: &str,
     client: &Client,
 ) -> anyhow::Result<()> {
+    // Check if the server is vanilla
+    if is_vanilla(server_name)? {
+        println!("{server_name} is a vanilla server and should not have any mods installed.");
+        return Ok(());
+    }
+
     println!("Downloading mod version {version_id}...");
     let mods_dir = mods_dir(server_name);
     fs::create_dir_all(&mods_dir)?;
@@ -432,6 +430,12 @@ async fn install_from_command(
     client: &Client,
 ) -> anyhow::Result<String> {
     match command {
+        InstallCommands::Vanilla { version_args } => {
+            println!("Fetching versions...");
+            let version = version_args.versions(client).await?;
+            println!("Downloading server jar...");
+            forks::Vanilla::install(server_name, version, client).await
+        }
         InstallCommands::Fabric { version_args } => {
             println!("Fetching versions...");
             let versions = version_args.versions(client).await?;
@@ -445,4 +449,14 @@ async fn install_from_command(
             forks::Forge::install(server_name, versions, client).await
         }
     }
+}
+
+fn is_vanilla(server_name: &str) -> anyhow::Result<bool> {
+    let server_jar_name = Config::load_or_create(server_name)?.jar_name;
+    let server_jar_path = server_dir(server_name).join(&server_jar_name);
+    let mut archive = jar_parser::archive(server_jar_path)?;
+    Ok(matches!(
+        forks::detect_server_fork(&mut archive)?,
+        ServerFork::Vanilla
+    ))
 }

@@ -5,7 +5,7 @@ use std::{
     error::Error,
     fmt::Display,
     fs::{self, File},
-    io::{self, BufReader, Read},
+    io::{self, BufReader, Read, Seek},
     path::{Path, PathBuf},
 };
 use zip::ZipArchive;
@@ -75,8 +75,8 @@ pub fn calculate_hash(file: &mut File) -> std::io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-pub fn read_file(
-    archive: &mut ZipArchive<BufReader<&File>>,
+pub fn read_file<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
     file_name: &str,
 ) -> anyhow::Result<String> {
     let mut file_in_jar = archive
@@ -87,6 +87,12 @@ pub fn read_file(
     file_in_jar.read_to_string(&mut content)?;
 
     Ok(content)
+}
+
+pub fn archive(jar_path: impl AsRef<Path>) -> anyhow::Result<ZipArchive<BufReader<File>>> {
+    let jar_file = File::open(jar_path)?;
+    let archive = ZipArchive::new(BufReader::new(jar_file))?;
+    Ok(archive)
 }
 
 pub fn parse_properties(content: &str) -> HashMap<String, String> {
