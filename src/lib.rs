@@ -128,13 +128,7 @@ pub fn list_servers() {
 /// If the instance is vanilla and has no mods directory, displays a message to inform the user.
 pub async fn list_mods(server_name: &str, update_arg: bool, client: &Client) -> anyhow::Result<()> {
     // Check if the server is vanilla
-    let server_jar_name = Config::load_or_create(server_name)?.jar_name;
-    let server_jar_path = server_dir(server_name).join(&server_jar_name);
-    let mut archive = jar_parser::archive(server_jar_path)?;
-    if matches!(
-        forks::detect_server_fork(&mut archive)?,
-        ServerFork::Vanilla
-    ) {
+    if is_vanilla(server_name)? {
         println!("{server_name} is a vanilla server and should not have any mods installed.");
         return Ok(());
     }
@@ -313,6 +307,12 @@ pub async fn install_mod(
     version_id: &str,
     client: &Client,
 ) -> anyhow::Result<()> {
+    // Check if the server is vanilla
+    if is_vanilla(server_name)? {
+        println!("{server_name} is a vanilla server and should not have any mods installed.");
+        return Ok(());
+    }
+
     println!("Downloading mod version {version_id}...");
     let mods_dir = mods_dir(server_name);
     fs::create_dir_all(&mods_dir)?;
@@ -449,4 +449,14 @@ async fn install_from_command(
             forks::Forge::install(server_name, versions, client).await
         }
     }
+}
+
+fn is_vanilla(server_name: &str) -> anyhow::Result<bool> {
+    let server_jar_name = Config::load_or_create(server_name)?.jar_name;
+    let server_jar_path = server_dir(server_name).join(&server_jar_name);
+    let mut archive = jar_parser::archive(server_jar_path)?;
+    Ok(matches!(
+        forks::detect_server_fork(&mut archive)?,
+        ServerFork::Vanilla
+    ))
 }
