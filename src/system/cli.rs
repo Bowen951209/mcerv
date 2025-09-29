@@ -24,11 +24,14 @@ pub struct YesArgs {
 #[derive(Args, Debug)]
 pub struct VanillaVersionArgs {
     /// Use the latest stable versions (no need to specify versions)
-    #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
     pub latest_stable: bool,
 
     /// Minecraft game version
-    #[arg(required_unless_present = "latest_stable")]
+    #[arg(
+        required_unless_present = "latest_stable",
+        conflicts_with = "latest_stable"
+    )]
     pub version: Option<String>,
 }
 
@@ -49,19 +52,28 @@ impl Versions for VanillaVersionArgs {
 #[derive(Args, Debug)]
 pub struct FabricVersionArgs {
     /// Use the latest stable versions (no need to specify versions)
-    #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with_all = ["game_version", "loader_version", "installer_version"])]
     pub latest_stable: bool,
 
     /// Minecraft game version
-    #[arg(required_unless_present = "latest_stable")]
+    #[arg(
+        required_unless_present = "latest_stable",
+        conflicts_with = "latest_stable"
+    )]
     pub game_version: Option<String>,
 
     /// Fabric loader version
-    #[arg(required_unless_present = "latest_stable")]
+    #[arg(
+        required_unless_present = "latest_stable",
+        conflicts_with = "latest_stable"
+    )]
     pub loader_version: Option<String>,
 
     /// Fabric installer version
-    #[arg(required_unless_present = "latest_stable")]
+    #[arg(
+        required_unless_present = "latest_stable",
+        conflicts_with = "latest_stable"
+    )]
     pub installer_version: Option<String>,
 }
 
@@ -92,11 +104,11 @@ impl Versions for FabricVersionArgs {
 #[derive(Args, Debug)]
 pub struct ForgeVersionArgs {
     /// Use the latest versions (no need to specify versions)
-    #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
     pub latest: bool,
 
     /// Forge installer version. For example: `1.21.8-58.1.1`.
-    #[arg(required_unless_present = "latest")]
+    #[arg(required_unless_present = "latest", conflicts_with = "latest")]
     pub version: Option<String>,
 }
 
