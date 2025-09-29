@@ -16,6 +16,36 @@ use std::{
 };
 use zip::ZipArchive;
 
+/// This macro defines the supported server forks by:
+/// 1. Adding variants to the `ServerFork` enum.
+/// 2. Creating an empty struct for each fork.
+macro_rules! define_forks {
+    ($($variant:ident),* $(,)?) => {
+        #[derive(Debug, Clone, Copy)]
+        pub enum ServerFork {
+            $($variant),*
+        }
+
+        $(
+            pub struct $variant;
+        )*
+
+        fn detect_fork_from_main_class<R: Read + Seek>(
+            main_class: &str
+        ) -> anyhow::Result<ServerFork> {
+            $(
+                if $variant::is_this_fork(main_class) {
+                    return Ok(ServerFork::$variant);
+                }
+            )*
+
+            anyhow::bail!(DetectServerInfoError::UnknownServerFork);
+        }
+    };
+}
+
+define_forks!(Vanilla, Fabric, Forge);
+
 #[derive(Debug, Clone)]
 pub enum DetectServerInfoError {
     MainClassNotFound,
@@ -44,13 +74,6 @@ impl Display for DetectServerInfoError {
 
 impl Error for DetectServerInfoError {}
 
-#[derive(Debug, Clone, Copy)]
-pub enum ServerFork {
-    Fabric,
-    Forge,
-    Vanilla,
-}
-
 pub trait Fork {
     type FetchConfig;
     type Version;
@@ -68,9 +91,6 @@ pub trait Fork {
     async fn fetch_availables(config: Self::FetchConfig, client: &Client)
     -> anyhow::Result<String>;
 }
-
-#[derive(Debug)]
-pub struct Vanilla;
 
 impl Fork for Vanilla {
     type FetchConfig = ();
@@ -104,8 +124,6 @@ impl Fork for Vanilla {
         todo!()
     }
 }
-
-pub struct Fabric;
 
 impl Fork for Fabric {
     type FetchConfig = bool;
@@ -147,8 +165,6 @@ impl Fork for Fabric {
         fabric_meta::versions(client, mode).await
     }
 }
-
-pub struct Forge;
 
 impl Fork for Forge {
     type FetchConfig = ();
@@ -229,16 +245,7 @@ pub fn detect_server_fork<R: Read + Seek>(
         .get("Main-Class")
         .ok_or(anyhow!(DetectServerInfoError::MainClassNotFound))?;
 
-    // loop through all structs that implements Fork
-    if Vanilla::is_this_fork(main_class) {
-        return Ok(ServerFork::Vanilla);
-    } else if Fabric::is_this_fork(main_class) {
-        return Ok(ServerFork::Fabric);
-    } else if Forge::is_this_fork(main_class) {
-        return Ok(ServerFork::Forge);
-    }
-
-    anyhow::bail!(DetectServerInfoError::UnknownServerFork);
+    detect_fork_from_main_class::<R>(main_class)
 }
 
 pub fn detect_game_version<R: Read + Seek>(
