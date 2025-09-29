@@ -31,7 +31,7 @@ macro_rules! define_forks {
             pub struct $variant;
         )*
 
-        fn detect_fork_from_main_class<R: Read + Seek>(
+        fn detect_fork_from_main_class(
             main_class: &str
         ) -> anyhow::Result<ServerFork> {
             $(
@@ -242,7 +242,7 @@ pub fn detect_server_fork<R: Read + Seek>(
         .get("Main-Class")
         .ok_or(anyhow!(DetectServerInfoError::MainClassNotFound))?;
 
-    detect_fork_from_main_class::<R>(main_class)
+    detect_fork_from_main_class(main_class)
 }
 
 pub fn detect_game_version<R: Read + Seek>(
