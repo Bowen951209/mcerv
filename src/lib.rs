@@ -2,10 +2,7 @@ mod network;
 mod system;
 
 use crate::{
-    network::{
-        fabric_meta::{self, PrintVersionMode},
-        modrinth::{self, SearchIndex},
-    },
+    network::modrinth::{self, SearchIndex},
     system::{
         cli::{Cli, Commands, FetchCommands, InstallCommands, Versions},
         config::Config,
@@ -57,10 +54,12 @@ pub async fn run() -> anyhow::Result<()> {
         }
         Commands::Fetch { command } => {
             let s = match command {
-                FetchCommands::Fabric {
-                    all,
-                    stable_only: _,
-                } => forks::Fabric::fetch_availables(all, &Client::new()).await?,
+                FetchCommands::Vanilla { filter } => {
+                    forks::Vanilla::fetch_availables(filter.all, &Client::new()).await?
+                }
+                FetchCommands::Fabric { filter } => {
+                    forks::Fabric::fetch_availables(filter.all, &Client::new()).await?
+                }
                 FetchCommands::Forge {} => {
                     forks::Forge::fetch_availables((), &Client::new()).await?
                 }
@@ -431,6 +430,12 @@ async fn install_from_command(
     client: &Client,
 ) -> anyhow::Result<String> {
     match command {
+        InstallCommands::Vanilla { version_args } => {
+            println!("Fetching versions...");
+            let version = version_args.versions(client).await?;
+            println!("Downloading server jar...");
+            forks::Vanilla::install(server_name, version, client).await
+        }
         InstallCommands::Fabric { version_args } => {
             println!("Fetching versions...");
             let versions = version_args.versions(client).await?;

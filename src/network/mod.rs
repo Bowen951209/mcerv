@@ -1,15 +1,30 @@
+use reqwest::{Client, StatusCode};
 use std::{
     fs::{self, File},
     path::PathBuf,
 };
-
-use reqwest::{Client, StatusCode};
+use tokio::task::JoinSet;
 
 pub mod fabric_meta;
 pub mod forge_meta;
 pub mod modrinth;
+pub mod vanilla_meta;
 
-use tokio::task::JoinSet;
+#[derive(Copy, Clone)]
+pub enum PrintVersionMode {
+    All,
+    StableOnly,
+}
+
+impl PrintVersionMode {
+    pub fn from_all_flag(all: bool) -> PrintVersionMode {
+        if all {
+            PrintVersionMode::All
+        } else {
+            PrintVersionMode::StableOnly
+        }
+    }
+}
 
 pub async fn download_file(
     client: &Client,

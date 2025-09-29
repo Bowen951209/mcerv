@@ -1,7 +1,8 @@
 use crate::{
     network::{
-        fabric_meta::{self, PrintVersionMode},
-        forge_meta,
+        PrintVersionMode,
+        fabric_meta::{self},
+        forge_meta, vanilla_meta,
     },
     server_dir,
     system::jar_parser,
@@ -93,7 +94,7 @@ pub trait Fork {
 }
 
 impl Fork for Vanilla {
-    type FetchConfig = ();
+    type FetchConfig = bool;
     type Version = String;
 
     fn is_this_fork(main_class: &str) -> bool {
@@ -113,15 +114,17 @@ impl Fork for Vanilla {
     }
 
     async fn install(
-        _server_name: &str,
-        _version: Self::Version,
-        _client: &Client,
+        server_name: &str,
+        version: Self::Version,
+        client: &Client,
     ) -> anyhow::Result<String> {
-        todo!()
+        let server_dir = server_dir(server_name);
+        vanilla_meta::download_server(client, &version, &server_dir).await
     }
 
-    async fn fetch_availables(_config: (), _client: &Client) -> anyhow::Result<String> {
-        todo!()
+    async fn fetch_availables(all: bool, client: &Client) -> anyhow::Result<String> {
+        let mode = PrintVersionMode::from_all_flag(all);
+        vanilla_meta::versions(client, mode).await
     }
 }
 
@@ -151,17 +154,11 @@ impl Fork for Fabric {
         client: &Client,
     ) -> anyhow::Result<String> {
         let server_dir = server_dir(server_name);
-
         fabric_meta::download_server(client, &version.0, &version.1, &version.2, &server_dir).await
     }
 
     async fn fetch_availables(all: bool, client: &Client) -> anyhow::Result<String> {
-        let mode = if all {
-            PrintVersionMode::All
-        } else {
-            PrintVersionMode::StableOnly
-        };
-
+        let mode = PrintVersionMode::from_all_flag(all);
         fabric_meta::versions(client, mode).await
     }
 }

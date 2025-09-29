@@ -1,4 +1,4 @@
-use crate::network::{fabric_meta, forge_meta, modrinth::SearchIndex};
+use crate::network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta};
 use clap::{ArgAction, Args, Parser, Subcommand, command};
 use reqwest::Client;
 
@@ -8,9 +8,41 @@ pub trait Versions {
 }
 
 #[derive(Args, Debug)]
+pub struct VersionsFilter {
+    /// List all versions, stable and unstable.
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
+    pub all: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct YesArgs {
     #[arg(short, long, action = ArgAction::SetTrue, default_value_t = false)]
     pub yes: bool,
+}
+
+/// Shared vanilla version arguments for Install and UpdateServerJar
+#[derive(Args, Debug)]
+pub struct VanillaVersionArgs {
+    /// Use the latest stable versions (no need to specify versions)
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
+    pub latest_stable: bool,
+
+    /// Minecraft game version
+    #[arg(required_unless_present = "latest_stable")]
+    pub version: Option<String>,
+}
+
+impl Versions for VanillaVersionArgs {
+    type V = String;
+    async fn versions(&self, client: &Client) -> anyhow::Result<Self::V> {
+        let version = if self.latest_stable {
+            vanilla_meta::fetch_latest_stable_version(client).await?
+        } else {
+            self.version.clone().unwrap()
+        };
+
+        Ok(version)
+    }
 }
 
 /// Shared fabric version arguments for Install and UpdateServerJar
@@ -171,20 +203,27 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum FetchCommands {
+    /// List available versions for Vanilla servers with cliffano's GitHub gist
+    Vanilla {
+        #[command(flatten)]
+        filter: VersionsFilter,
+    },
     /// List available versions for Fabric servers with fabric-meta
     Fabric {
-        /// List only stable versions
-        #[arg(long, action = ArgAction::SetTrue, default_value_t = true)]
-        stable_only: bool,
-        /// List all versions, stable and unstable.
-        #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
-        all: bool,
+        #[command(flatten)]
+        filter: VersionsFilter,
     },
+    /// List available versions for Forge servers with maven.minecraftforge.net
     Forge {},
 }
 
 #[derive(Subcommand)]
 pub enum InstallCommands {
+    /// Install a Vanilla server
+    Vanilla {
+        #[command(flatten)]
+        version_args: VanillaVersionArgs,
+    },
     /// Install a Fabric server
     Fabric {
         #[command(flatten)]
