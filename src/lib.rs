@@ -241,21 +241,6 @@ pub async fn fetch_mod_versions(
     Ok(())
 }
 
-pub async fn fetch_fabric_versions(all: bool, client: &Client) -> anyhow::Result<()> {
-    let start = Instant::now();
-
-    let mode = if all {
-        PrintVersionMode::All
-    } else {
-        PrintVersionMode::StableOnly
-    };
-
-    fabric_meta::versions(client, mode).await?;
-    println!("Took {:?}", start.elapsed());
-
-    Ok(())
-}
-
 pub async fn search_mod(
     name: &str,
     facets: &[String],
