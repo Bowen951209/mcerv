@@ -46,7 +46,9 @@ impl Config {
                 .unwrap()
                 .to_string_lossy()
                 .to_string();
-            return Self::new_4gb(jar_name);
+            let config = Self::new_4gb(jar_name)?;
+            config.save(server_name)?;
+            return Ok(config);
         }
 
         let content = fs::read_to_string(path)?;
