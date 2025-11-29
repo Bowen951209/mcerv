@@ -27,7 +27,7 @@ use zip::ZipArchive;
 ///
 /// # Usage
 ///
-/// ```
+/// ```ignore
 /// __define_forks!(
 ///    ForkName1 => ( InstallArgsType1, FetchFilterType1 ),
 ///    ForkName2 => ( InstallArgsType2, FetchFilterType2 ),
@@ -106,7 +106,7 @@ macro_rules! __define_forks {
 
 /// This macro is a syntax parser. It transforms syntax
 ///
-/// ```
+/// ```ignore
 /// define_forks!(
 ///     ForkName1 => ( Args1, Filter1 ),
 ///     ForkName2 => ( Args2, ()),
@@ -116,7 +116,7 @@ macro_rules! __define_forks {
 ///
 /// into
 ///
-/// ```
+/// ```ignore
 /// __define_forks!(
 ///   ForkName1 => ( Args1, Filter1 ),
 ///   ForkName2 => ( Args2 ),
