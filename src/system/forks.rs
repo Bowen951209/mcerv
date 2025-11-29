@@ -35,10 +35,9 @@ use zip::ZipArchive;
 /// )
 /// ```
 ///
-/// Install argument should be in first place, and fetch filter should be in second.
+/// Install argument should be in first position, and fetch filter should be in second position.
 /// Intsall argument should implement [`cli::Versions`], and fetch filter should implement [`cli::FetchFilter`].
-/// If a fork doesn't have fetch filter, you can simply not provide it. But notice that you still
-/// have to put install arguments in parantheses.
+/// If a fork doesn't have fetch filter, you still have to put install arguments in parantheses.
 macro_rules! __define_forks {
     (
         $(
@@ -105,6 +104,28 @@ macro_rules! __define_forks {
     };
 }
 
+/// This macro is a syntax parser. It transforms syntax
+///
+/// ```
+/// define_forks!(
+///     ForkName1 => ( Args1, Filter1 ),
+///     ForkName2 => ( Args2, ()),
+///     ForkName3 => ( Args3, Filter3 ),
+/// )
+/// ```
+///
+/// into
+///
+/// ```
+/// __define_forks!(
+///   ForkName1 => ( Args1, Filter1 ),
+///   ForkName2 => ( Args2 ),
+///   ForkName3 => ( Args3, Filter3 ),
+/// )
+/// ```
+///
+/// This allows programmers to explictly specify no fetch filter by using `()`,
+/// aligning with idiomatic Rust.
 macro_rules! define_forks {
     // Rule A: Termination - when input queue is empty
     (@parse outputs=[$($output:tt)*] input=[$(,)?]) => {
