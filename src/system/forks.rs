@@ -5,9 +5,11 @@ use crate::{
         forge_meta, vanilla_meta,
     },
     server_dir,
+    system::cli,
     system::jar_parser,
 };
 use anyhow::anyhow;
+use clap::{Subcommand, command};
 use reqwest::Client;
 use std::{
     error::Error,
@@ -17,11 +19,31 @@ use std::{
 };
 use zip::ZipArchive;
 
-/// This macro defines the supported server forks by:
-/// 1. Adding variants to the `ServerFork` enum.
-/// 2. Creating an empty struct for each fork.
-macro_rules! define_forks {
-    ($($variant:ident),* $(,)?) => {
+/// This macro defines server forks by:
+/// 1. Creating [`ServerFork`] enum for matching convenience.
+/// 2. Creating empty structs for [`Fork`] implementations.
+/// 3. Creating [`detect_fork_from_main_class`] function.
+/// 4. Creating [`FetchCommands`] and [`InstallCommands`] enums for CLI.
+///
+/// # Usage
+///
+/// ```ignore
+/// __define_forks!(
+///    ForkName1 => ( InstallArgsType1, FetchFilterType1 ),
+///    ForkName2 => ( InstallArgsType2, FetchFilterType2 ),
+///    ForkName3 => ( InstallArgsType3 ),
+/// )
+/// ```
+///
+/// Install argument should be in first position, and fetch filter should be in second position.
+/// Intsall argument should implement [`cli::Versions`], and fetch filter should implement [`cli::FetchFilter`].
+/// If a fork doesn't have fetch filter, you still have to put install arguments in parantheses.
+macro_rules! __define_forks {
+    (
+        $(
+            $variant:ident => ( $install_args:ty $(,$fetch_filter:ty)? ) ),*
+        $(,)?
+    ) => {
         #[derive(Debug, Clone, Copy)]
         pub enum ServerFork {
             $($variant),*
@@ -42,10 +64,113 @@ macro_rules! define_forks {
 
             anyhow::bail!(DetectServerInfoError::UnknownServerFork);
         }
+
+        #[derive(Subcommand)]
+        pub enum InstallCommands {
+            $(
+                $variant {
+                    #[command(flatten)]
+                    version_args: $install_args,
+                },
+            )*
+        }
+
+        #[derive(Subcommand)]
+        pub enum FetchCommands {
+            $(
+                $variant {
+                    $(
+                        #[command(flatten)]
+                        filter: $fetch_filter,
+                    )?
+                },
+            )*
+        }
+
+        // Assert trait implementations by creating and calling anonymous empty generics functions
+        $(
+            const _: () = {
+                // Check 1: $install_args must implement cli::Versions
+                const fn assert_is_versions<T: cli::Versions>() {}
+                assert_is_versions::<$install_args>();
+
+                // Check 2: If there is $fetch_filter, it must implement cli::FetchFilter
+                $(
+                    const fn assert_is_filter<T: cli::FetchFilter>() {}
+                    assert_is_filter::<$fetch_filter>();
+                )?
+            };
+        )*
     };
 }
 
-define_forks!(Vanilla, Fabric, Forge);
+/// This macro is a syntax parser. It transforms syntax
+///
+/// ```ignore
+/// define_forks!(
+///     ForkName1 => ( Args1, Filter1 ),
+///     ForkName2 => ( Args2, ()),
+///     ForkName3 => ( Args3, Filter3 ),
+/// )
+/// ```
+///
+/// into
+///
+/// ```ignore
+/// __define_forks!(
+///   ForkName1 => ( Args1, Filter1 ),
+///   ForkName2 => ( Args2 ),
+///   ForkName3 => ( Args3, Filter3 ),
+/// )
+/// ```
+///
+/// This allows programmers to explictly specify no fetch filter by using `()`,
+/// aligning with idiomatic Rust.
+macro_rules! define_forks {
+    // Rule A: Termination - when input queue is empty
+    (@parse outputs=[$($output:tt)*] input=[$(,)?]) => {
+        // Pass all accumulated outputs to the backend macro
+        __define_forks!( $($output)* );
+    };
+
+    // Rule B: Special case - encounter `(Args, ())`
+    (@parse
+        outputs=[$($output:tt)*]
+        // Match `()` literally, instead as :ty
+        input=[ $name:ident => ($args:ty, ()), $($rest:tt)* ]
+    ) => {
+        define_forks!(
+            @parse
+            // Discard the `()`, keep only ($args)
+            outputs=[ $($output)* $name => ($args), ]
+            input=[ $($rest)* ]
+        );
+    };
+
+    // Rule C: General case - encounter `(Args, Filter)`
+    (@parse
+        outputs=[$($output:tt)*]
+        input=[ $name:ident => ($args:ty, $filter:ty), $($rest:tt)* ]
+    ) => {
+        define_forks!(
+            @parse
+            outputs=[ $($output)* $name => ($args, $filter), ]
+            input=[ $($rest)* ]
+        );
+    };
+
+    // Entry point
+    ($($input:tt)*) => {
+        // Initialize the state machine: outputs is empty, input is user input
+        define_forks!(@parse outputs=[] input=[$($input)*,]);
+    };
+}
+
+define_forks!(
+    Vanilla => (cli::VanillaVersionArgs, cli::VersionsFilter),
+    Fabric => (cli::FabricVersionArgs, cli::VersionsFilter),
+    Forge => (cli::ForgeVersionArgs, ()),
+);
 
 #[derive(Debug, Clone)]
 pub enum DetectServerInfoError {

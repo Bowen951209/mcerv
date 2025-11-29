@@ -2,9 +2,10 @@ mod network;
 mod system;
 
 use crate::{
+    forks::{FetchCommands, InstallCommands},
     network::modrinth::{self, SearchIndex},
     system::{
-        cli::{Cli, Commands, FetchCommands, InstallCommands, Versions},
+        cli::{Cli, Commands, Versions},
         config::Config,
         forks::{self, Fork, ServerFork},
         jar_parser,

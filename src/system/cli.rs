@@ -1,3 +1,4 @@
+use crate::forks::{FetchCommands, InstallCommands};
 use crate::network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta};
 use clap::{ArgAction, Args, Parser, Subcommand, command};
 use reqwest::Client;
@@ -7,12 +8,16 @@ pub trait Versions {
     async fn versions(&self, client: &Client) -> anyhow::Result<Self::V>;
 }
 
+pub trait FetchFilter {}
+
 #[derive(Args, Debug)]
 pub struct VersionsFilter {
     /// List all versions, stable and unstable.
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
     pub all: bool,
 }
+
+impl FetchFilter for VersionsFilter {}
 
 #[derive(Args, Debug)]
 pub struct YesArgs {
@@ -211,39 +216,4 @@ pub enum Commands {
     Start,
     /// Show the info of the target server
     Info { server_name: String },
-}
-
-#[derive(Subcommand)]
-pub enum FetchCommands {
-    /// List available versions for Vanilla servers with cliffano's GitHub gist
-    Vanilla {
-        #[command(flatten)]
-        filter: VersionsFilter,
-    },
-    /// List available versions for Fabric servers with fabric-meta
-    Fabric {
-        #[command(flatten)]
-        filter: VersionsFilter,
-    },
-    /// List available versions for Forge servers with maven.minecraftforge.net
-    Forge {},
-}
-
-#[derive(Subcommand)]
-pub enum InstallCommands {
-    /// Install a Vanilla server
-    Vanilla {
-        #[command(flatten)]
-        version_args: VanillaVersionArgs,
-    },
-    /// Install a Fabric server
-    Fabric {
-        #[command(flatten)]
-        version_args: FabricVersionArgs,
-    },
-    /// Install a Forge server
-    Forge {
-        #[command(flatten)]
-        version_args: ForgeVersionArgs,
-    },
 }
