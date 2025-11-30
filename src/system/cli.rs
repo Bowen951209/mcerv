@@ -1,5 +1,7 @@
-use crate::forks::{FetchCommands, InstallCommands};
-use crate::network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta};
+use crate::{
+    network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta},
+    system::forks::{FetchCommands, InstallCommands},
+};
 use clap::{ArgAction, Args, Parser, Subcommand, command};
 use reqwest::Client;
 
