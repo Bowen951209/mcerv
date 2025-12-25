@@ -2,7 +2,7 @@ use crate::{
     network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta},
     system::forks::{FetchCommands, InstallCommands},
 };
-use clap::{ArgAction, Args, Parser, Subcommand, command};
+use clap::{ArgAction, Args, Parser, Subcommand};
 use reqwest::Client;
 
 pub trait Versions {

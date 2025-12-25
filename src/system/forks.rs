@@ -9,7 +9,7 @@ use crate::{
     system::jar_parser,
 };
 use anyhow::anyhow;
-use clap::{Subcommand, command};
+use clap::Subcommand;
 use reqwest::Client;
 use std::{
     error::Error,
