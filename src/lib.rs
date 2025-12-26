@@ -367,7 +367,6 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    println!("Updating server jar...");
     let start = Instant::now();
 
     // Find the old jar name before downloading the new one
@@ -393,6 +392,7 @@ where
     let argv = std::iter::once(dummy_name.into()).chain(iter);
     let command = fork.parse_version_args(argv);
 
+    println!("Installing new server jar...");
     let filename = install_from_command(server_name, command, client).await?;
 
     println!("Deleting old server jar...");
