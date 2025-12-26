@@ -52,13 +52,13 @@ macro_rules! __define_forks {
 
         use std::ffi::OsString;
         impl ServerFork {
-            pub fn parse_version_args<I, T>(&self, command: I) -> InstallCommands
+            pub fn parse_version_args<I, T>(&self, command: I) -> InstallCommand
             where I: IntoIterator<Item = T>,
                   T: Into<OsString> + Clone
             {
                 match self {
                     $(
-                        ServerFork::$variant => InstallCommands::$variant {
+                        ServerFork::$variant => InstallCommand::$variant {
                                 version_args: <$version_args>::try_parse_from(command).unwrap_or_else(|e| e.exit())
                         },
                     )*
@@ -83,8 +83,7 @@ macro_rules! __define_forks {
         }
 
         #[derive(Subcommand)]
-        pub enum InstallCommands {
-            // TODO: remove the `s` in the enum name
+        pub enum InstallCommand {
             $(
                 $variant {
                     #[command(flatten)]
@@ -94,7 +93,7 @@ macro_rules! __define_forks {
         }
 
         #[derive(Subcommand)]
-        pub enum FetchCommands {
+        pub enum FetchCommand {
             $(
                 $variant {
                     $(

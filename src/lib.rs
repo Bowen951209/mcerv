@@ -4,9 +4,9 @@ mod system;
 use crate::{
     network::modrinth::{self, SearchIndex},
     system::{
-        cli::{Cli, Commands, Versions},
+        cli::{Cli, Command, Versions},
         config::Config,
-        forks::{self, FetchCommands, Fork, InstallCommands, ServerFork},
+        forks::{self, FetchCommand, Fork, InstallCommand, ServerFork},
         jar_parser,
         server_info::ServerInfo,
     },
@@ -42,61 +42,61 @@ pub async fn run() -> anyhow::Result<()> {
     fs::create_dir_all(instances_dir()).expect("Unable to create instances directory");
 
     match Cli::parse().command {
-        Commands::LsServers => list_servers(),
-        Commands::LsMods {
+        Command::LsServers => list_servers(),
+        Command::LsMods {
             server_name,
             want_update,
         } => {
             list_mods(&server_name, want_update.yes, &Client::new()).await?;
         }
-        Commands::FetchModVersions { name, featured } => {
+        Command::FetchModVersions { name, featured } => {
             fetch_mod_versions(&name, featured, &Client::new()).await?;
         }
-        Commands::Fetch { command } => {
+        Command::Fetch { command } => {
             let s = match command {
-                FetchCommands::Vanilla { filter } => {
+                FetchCommand::Vanilla { filter } => {
                     forks::Vanilla::fetch_availables(filter.all, &Client::new()).await?
                 }
-                FetchCommands::Fabric { filter } => {
+                FetchCommand::Fabric { filter } => {
                     forks::Fabric::fetch_availables(filter.all, &Client::new()).await?
                 }
-                FetchCommands::Forge {} => {
+                FetchCommand::Forge {} => {
                     forks::Forge::fetch_availables((), &Client::new()).await?
                 }
             };
             println!("{s}");
         }
-        Commands::SearchMod {
+        Command::SearchMod {
             name,
             facets,
             index,
             limit,
         } => search_mod(&name, &facets, index, limit, &Client::new()).await?,
-        Commands::Set {
+        Command::Set {
             server_name,
             max_memory,
             min_memory,
             java_home,
         } => set_config(&server_name, max_memory, min_memory, java_home)?,
-        Commands::Install {
+        Command::Install {
             command,
             server_name,
             accept_eula,
         } => install(command, &server_name, accept_eula.yes, &Client::new()).await?,
-        Commands::InstallMod {
+        Command::InstallMod {
             server_name,
             mod_id,
         } => install_mod(&server_name, &mod_id, &Client::new()).await?,
-        Commands::GenStartScript { server_name } => generate_start_script(&server_name)?,
-        Commands::UpdateServerJar {
+        Command::GenStartScript { server_name } => generate_start_script(&server_name)?,
+        Command::UpdateServerJar {
             server_name,
             version_args,
         } => {
             update_server_jar(&version_args, &server_name, &Client::new()).await?;
         }
-        Commands::AcceptEula { server_name } => generate_eula_accept_file(&server_name)?,
-        Commands::Start => todo!(),
-        Commands::Info { server_name } => show_server_info(&server_name)?,
+        Command::AcceptEula { server_name } => generate_eula_accept_file(&server_name)?,
+        Command::Start => todo!(),
+        Command::Info { server_name } => show_server_info(&server_name)?,
     }
 
     Ok(())
@@ -274,7 +274,7 @@ pub fn set_config(
 }
 
 pub async fn install(
-    command: InstallCommands,
+    command: InstallCommand,
     server_name: &str,
     accept_eula: bool,
     client: &Client,
@@ -446,23 +446,23 @@ pub fn proj_dirs() -> ProjectDirs {
 
 async fn install_from_command(
     server_name: &str,
-    command: InstallCommands,
+    command: InstallCommand,
     client: &Client,
 ) -> anyhow::Result<String> {
     match command {
-        InstallCommands::Vanilla { version_args } => {
+        InstallCommand::Vanilla { version_args } => {
             println!("Fetching versions...");
             let version = version_args.versions(client).await?;
             println!("Downloading server jar...");
             forks::Vanilla::install(server_name, version, client).await
         }
-        InstallCommands::Fabric { version_args } => {
+        InstallCommand::Fabric { version_args } => {
             println!("Fetching versions...");
             let versions = version_args.versions(client).await?;
             println!("Downloading server jar...");
             forks::Fabric::install(server_name, versions, client).await
         }
-        InstallCommands::Forge { version_args } => {
+        InstallCommand::Forge { version_args } => {
             println!("Fetching versions...");
             let versions = version_args.versions(client).await?;
             println!("Installing server jar...");

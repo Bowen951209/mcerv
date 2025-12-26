@@ -1,6 +1,6 @@
 use crate::{
     network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta},
-    system::forks::{FetchCommands, InstallCommands},
+    system::forks::{FetchCommand, InstallCommand},
 };
 use clap::{ArgAction, Args, Parser, Subcommand};
 use reqwest::Client;
@@ -138,11 +138,11 @@ impl Versions for ForgeVersionArgs {
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Command,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub enum Command {
     /// List the installed servers
     LsServers,
     /// List the mods in the target server and check for updates
@@ -161,7 +161,7 @@ pub enum Commands {
     /// List availible versions for the target Minecraft server fork
     Fetch {
         #[command(subcommand)]
-        command: FetchCommands,
+        command: FetchCommand,
     },
     /// Search for a mod with the given name
     SearchMod {
@@ -193,7 +193,7 @@ pub enum Commands {
     /// Install the server with the given versions
     Install {
         #[command(subcommand)]
-        command: InstallCommands,
+        command: InstallCommand,
         server_name: String,
         #[command(flatten)]
         accept_eula: YesArgs,
