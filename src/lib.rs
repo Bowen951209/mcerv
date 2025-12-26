@@ -11,7 +11,7 @@ use crate::{
         server_info::ServerInfo,
     },
 };
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use dialoguer::Confirm;
 use directories::ProjectDirs;
 use reqwest::Client;
@@ -382,8 +382,15 @@ where
 
     // Clap parser needs a dummy program name
     let iter = version_args.into_iter().map(|v| v.into());
-    // TODO: make `update-server-jar` not hard-coded
-    let argv = std::iter::once(OsString::from("mcerv update-server-jar")).chain(iter);
+    let dummy_name = format!(
+        "mcerv {}",
+        Cli::command()
+            .get_matches()
+            .subcommand()
+            .expect("Cannot get subcommand when getting dummy name")
+            .0
+    );
+    let argv = std::iter::once(dummy_name.into()).chain(iter);
     let command = fork.parse_version_args(argv);
 
     let filename = install_from_command(server_name, command, client).await?;
