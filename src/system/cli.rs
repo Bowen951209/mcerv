@@ -28,7 +28,7 @@ pub struct YesArgs {
 }
 
 /// Shared vanilla version arguments for Install and UpdateServerJar
-#[derive(Args, Debug)]
+#[derive(Parser, Debug)]
 pub struct VanillaVersionArgs {
     /// Use the latest stable versions (no need to specify versions)
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
@@ -56,7 +56,7 @@ impl Versions for VanillaVersionArgs {
 }
 
 /// Shared fabric version arguments for Install and UpdateServerJar
-#[derive(Args, Debug)]
+#[derive(Parser, Debug)]
 pub struct FabricVersionArgs {
     /// Use the latest stable versions (no need to specify versions)
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with_all = ["game_version", "loader_version", "installer_version"])]
@@ -108,7 +108,7 @@ impl Versions for FabricVersionArgs {
 }
 
 /// Shared forge version arguments for Install and UpdateServerJar
-#[derive(Args, Debug)]
+#[derive(Parser, Debug)]
 pub struct ForgeVersionArgs {
     /// Use the latest versions (no need to specify versions)
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
@@ -208,9 +208,10 @@ pub enum Commands {
     GenStartScript { server_name: String },
     /// Replace the server jar with the specified version
     UpdateServerJar {
-        #[command(subcommand)]
-        command: InstallCommands,
         server_name: String,
+        /// Version arguments specific to the server fork
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+        version_args: Vec<String>, // This will be parsed at runtime depending on the server fork
     },
     /// Accept the EULA for the target server. This will create or modify the eula.txt file
     AcceptEula { server_name: String },

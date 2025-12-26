@@ -15,7 +15,7 @@ use clap::Parser;
 use dialoguer::Confirm;
 use directories::ProjectDirs;
 use reqwest::Client;
-use std::{error::Error, fmt::Display, fs, io::Write, path::PathBuf, time::Instant};
+use std::{error::Error, ffi::OsString, fmt::Display, fs, io::Write, path::PathBuf, time::Instant};
 
 #[derive(Debug)]
 pub enum DirectoryError {
@@ -89,10 +89,10 @@ pub async fn run() -> anyhow::Result<()> {
         } => install_mod(&server_name, &mod_id, &Client::new()).await?,
         Commands::GenStartScript { server_name } => generate_start_script(&server_name)?,
         Commands::UpdateServerJar {
-            command,
             server_name,
+            version_args,
         } => {
-            update_server_jar(command, &server_name, &Client::new()).await?;
+            update_server_jar(&version_args, &server_name, &Client::new()).await?;
         }
         Commands::AcceptEula { server_name } => generate_eula_accept_file(&server_name)?,
         Commands::Start => todo!(),
@@ -358,11 +358,15 @@ pub fn show_server_info(server_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn update_server_jar(
-    command: InstallCommands,
+pub async fn update_server_jar<I, T>(
+    version_args: I,
     server_name: &str,
     client: &Client,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
     println!("Updating server jar...");
     let start = Instant::now();
 
@@ -372,6 +376,15 @@ pub async fn update_server_jar(
     let mut config = Config::load_or_create(server_name)?;
     let old_jar_name = config.jar_name;
     let old_jar_path = server_dir.join(old_jar_name);
+
+    let mut archive = jar_parser::archive(&old_jar_path)?;
+    let fork = forks::detect_server_fork(&mut archive)?;
+
+    // Clap parser needs a dummy program name
+    let iter = version_args.into_iter().map(|v| v.into());
+    // TODO: make `update-server-jar` not hard-coded
+    let argv = std::iter::once(OsString::from("mcerv update-server-jar")).chain(iter);
+    let command = fork.parse_version_args(argv);
 
     let filename = install_from_command(server_name, command, client).await?;
 

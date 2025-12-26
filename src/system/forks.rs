@@ -9,6 +9,7 @@ use crate::{
     system::jar_parser,
 };
 use anyhow::anyhow;
+use clap::Parser;
 use clap::Subcommand;
 use reqwest::Client;
 use std::{
@@ -41,12 +42,29 @@ use zip::ZipArchive;
 macro_rules! __define_forks {
     (
         $(
+            // TODO: Rename to version_args
             $variant:ident => ( $install_args:ty $(,$fetch_filter:ty)? ) ),*
         $(,)?
     ) => {
         #[derive(Debug, Clone, Copy)]
         pub enum ServerFork {
             $($variant),*
+        }
+
+        use std::ffi::OsString;
+        impl ServerFork {
+            pub fn parse_version_args<I, T>(&self, command: I) -> InstallCommands
+            where I: IntoIterator<Item = T>,
+                  T: Into<OsString> + Clone
+            {
+                match self {
+                    $(
+                        ServerFork::$variant => InstallCommands::$variant {
+                                version_args: <$install_args>::try_parse_from(command).unwrap_or_else(|e| e.exit())
+                        },
+                    )*
+                }
+            }
         }
 
         $(
@@ -67,6 +85,7 @@ macro_rules! __define_forks {
 
         #[derive(Subcommand)]
         pub enum InstallCommands {
+            // TODO: remove the `s` in the enum name
             $(
                 $variant {
                     #[command(flatten)]
