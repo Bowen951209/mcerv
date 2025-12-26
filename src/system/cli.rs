@@ -1,6 +1,6 @@
 use crate::{
     network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta},
-    system::forks::{FetchCommands, InstallCommands},
+    system::forks::{FetchCommand, InstallCommand},
 };
 use clap::{ArgAction, Args, Parser, Subcommand};
 use reqwest::Client;
@@ -28,7 +28,7 @@ pub struct YesArgs {
 }
 
 /// Shared vanilla version arguments for Install and UpdateServerJar
-#[derive(Args, Debug)]
+#[derive(Parser, Debug)]
 pub struct VanillaVersionArgs {
     /// Use the latest stable versions (no need to specify versions)
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
@@ -56,7 +56,7 @@ impl Versions for VanillaVersionArgs {
 }
 
 /// Shared fabric version arguments for Install and UpdateServerJar
-#[derive(Args, Debug)]
+#[derive(Parser, Debug)]
 pub struct FabricVersionArgs {
     /// Use the latest stable versions (no need to specify versions)
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with_all = ["game_version", "loader_version", "installer_version"])]
@@ -108,7 +108,7 @@ impl Versions for FabricVersionArgs {
 }
 
 /// Shared forge version arguments for Install and UpdateServerJar
-#[derive(Args, Debug)]
+#[derive(Parser, Debug)]
 pub struct ForgeVersionArgs {
     /// Use the latest versions (no need to specify versions)
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
@@ -138,11 +138,11 @@ impl Versions for ForgeVersionArgs {
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Command,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub enum Command {
     /// List the installed servers
     LsServers,
     /// List the mods in the target server and check for updates
@@ -161,7 +161,7 @@ pub enum Commands {
     /// List availible versions for the target Minecraft server fork
     Fetch {
         #[command(subcommand)]
-        command: FetchCommands,
+        command: FetchCommand,
     },
     /// Search for a mod with the given name
     SearchMod {
@@ -193,7 +193,7 @@ pub enum Commands {
     /// Install the server with the given versions
     Install {
         #[command(subcommand)]
-        command: InstallCommands,
+        command: InstallCommand,
         server_name: String,
         #[command(flatten)]
         accept_eula: YesArgs,
@@ -208,9 +208,10 @@ pub enum Commands {
     GenStartScript { server_name: String },
     /// Replace the server jar with the specified version
     UpdateServerJar {
-        #[command(subcommand)]
-        command: InstallCommands,
         server_name: String,
+        /// Version arguments specific to the server fork
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+        version_args: Vec<String>, // This will be parsed at runtime depending on the server fork
     },
     /// Accept the EULA for the target server. This will create or modify the eula.txt file
     AcceptEula { server_name: String },

@@ -9,6 +9,7 @@ use crate::{
     system::jar_parser,
 };
 use anyhow::anyhow;
+use clap::Parser;
 use clap::Subcommand;
 use reqwest::Client;
 use std::{
@@ -41,12 +42,28 @@ use zip::ZipArchive;
 macro_rules! __define_forks {
     (
         $(
-            $variant:ident => ( $install_args:ty $(,$fetch_filter:ty)? ) ),*
+            $variant:ident => ( $version_args:ty $(,$fetch_filter:ty)? ) ),*
         $(,)?
     ) => {
         #[derive(Debug, Clone, Copy)]
         pub enum ServerFork {
             $($variant),*
+        }
+
+        use std::ffi::OsString;
+        impl ServerFork {
+            pub fn parse_version_args<I, T>(&self, command: I) -> InstallCommand
+            where I: IntoIterator<Item = T>,
+                  T: Into<OsString> + Clone
+            {
+                match self {
+                    $(
+                        ServerFork::$variant => InstallCommand::$variant {
+                                version_args: <$version_args>::try_parse_from(command).unwrap_or_else(|e| e.exit())
+                        },
+                    )*
+                }
+            }
         }
 
         $(
@@ -66,17 +83,17 @@ macro_rules! __define_forks {
         }
 
         #[derive(Subcommand)]
-        pub enum InstallCommands {
+        pub enum InstallCommand {
             $(
                 $variant {
                     #[command(flatten)]
-                    version_args: $install_args,
+                    version_args: $version_args,
                 },
             )*
         }
 
         #[derive(Subcommand)]
-        pub enum FetchCommands {
+        pub enum FetchCommand {
             $(
                 $variant {
                     $(
@@ -90,9 +107,9 @@ macro_rules! __define_forks {
         // Assert trait implementations by creating and calling anonymous empty generics functions
         $(
             const _: () = {
-                // Check 1: $install_args must implement cli::Versions
+                // Check 1: $version_args must implement cli::Versions
                 const fn assert_is_versions<T: cli::Versions>() {}
-                assert_is_versions::<$install_args>();
+                assert_is_versions::<$version_args>();
 
                 // Check 2: If there is $fetch_filter, it must implement cli::FetchFilter
                 $(
