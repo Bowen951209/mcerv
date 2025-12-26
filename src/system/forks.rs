@@ -42,8 +42,7 @@ use zip::ZipArchive;
 macro_rules! __define_forks {
     (
         $(
-            // TODO: Rename to version_args
-            $variant:ident => ( $install_args:ty $(,$fetch_filter:ty)? ) ),*
+            $variant:ident => ( $version_args:ty $(,$fetch_filter:ty)? ) ),*
         $(,)?
     ) => {
         #[derive(Debug, Clone, Copy)]
@@ -60,7 +59,7 @@ macro_rules! __define_forks {
                 match self {
                     $(
                         ServerFork::$variant => InstallCommands::$variant {
-                                version_args: <$install_args>::try_parse_from(command).unwrap_or_else(|e| e.exit())
+                                version_args: <$version_args>::try_parse_from(command).unwrap_or_else(|e| e.exit())
                         },
                     )*
                 }
@@ -89,7 +88,7 @@ macro_rules! __define_forks {
             $(
                 $variant {
                     #[command(flatten)]
-                    version_args: $install_args,
+                    version_args: $version_args,
                 },
             )*
         }
@@ -109,9 +108,9 @@ macro_rules! __define_forks {
         // Assert trait implementations by creating and calling anonymous empty generics functions
         $(
             const _: () = {
-                // Check 1: $install_args must implement cli::Versions
+                // Check 1: $version_args must implement cli::Versions
                 const fn assert_is_versions<T: cli::Versions>() {}
-                assert_is_versions::<$install_args>();
+                assert_is_versions::<$version_args>();
 
                 // Check 2: If there is $fetch_filter, it must implement cli::FetchFilter
                 $(
