@@ -1,5 +1,5 @@
-mod network;
-mod system;
+pub mod network;
+pub mod system;
 
 use crate::{
     network::modrinth::{self, SearchIndex},
@@ -11,7 +11,7 @@ use crate::{
         server_info::ServerInfo,
     },
 };
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 use dialoguer::Confirm;
 use directories::ProjectDirs;
 use reqwest::Client;
@@ -37,11 +37,6 @@ impl Display for DirectoryError {
 }
 
 impl Error for DirectoryError {}
-
-pub async fn run() -> anyhow::Result<()> {
-    fs::create_dir_all(instances_dir()).expect("Unable to create instances directory");
-    Cli::parse().command.run().await
-}
 
 /// List the directories in the instances directory
 pub fn list_servers() {
