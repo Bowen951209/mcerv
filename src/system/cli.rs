@@ -30,7 +30,7 @@ pub struct YesArgs {
 /// Shared vanilla version arguments for Install and UpdateServerJar
 #[derive(Parser, Debug)]
 pub struct VanillaVersionArgs {
-    /// Use the latest stable versions (no need to specify versions)
+    /// Use the latest stable game version
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
     pub latest_stable: bool,
 
@@ -58,29 +58,20 @@ impl Versions for VanillaVersionArgs {
 /// Shared fabric version arguments for Install and UpdateServerJar
 #[derive(Parser, Debug)]
 pub struct FabricVersionArgs {
-    /// Use the latest stable versions (no need to specify versions)
-    #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with_all = ["game_version", "loader_version", "installer_version"])]
+    /// Set the unset versions to latest stable
+    #[arg(long,action = ArgAction::SetTrue,default_value_t = false)]
     pub latest_stable: bool,
 
     /// Minecraft game version
-    #[arg(
-        required_unless_present = "latest_stable",
-        conflicts_with = "latest_stable"
-    )]
+    #[arg(required_unless_present = "latest_stable")]
     pub game_version: Option<String>,
 
     /// Fabric loader version
-    #[arg(
-        required_unless_present = "latest_stable",
-        conflicts_with = "latest_stable"
-    )]
+    #[arg(required_unless_present = "latest_stable")]
     pub loader_version: Option<String>,
 
     /// Fabric installer version
-    #[arg(
-        required_unless_present = "latest_stable",
-        conflicts_with = "latest_stable"
-    )]
+    #[arg(required_unless_present = "latest_stable")]
     pub installer_version: Option<String>,
 }
 
@@ -110,7 +101,7 @@ impl Versions for FabricVersionArgs {
 /// Shared forge version arguments for Install and UpdateServerJar
 #[derive(Parser, Debug)]
 pub struct ForgeVersionArgs {
-    /// Use the latest versions (no need to specify versions)
+    /// Use the latest forge installer version. It's also the latest game version.
     #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "version")]
     pub latest: bool,
 
