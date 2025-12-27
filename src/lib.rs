@@ -4,9 +4,9 @@ mod system;
 use crate::{
     network::modrinth::{self, SearchIndex},
     system::{
-        cli::{Cli, Command, Versions},
+        cli::{Cli, Versions},
         config::Config,
-        forks::{self, FetchCommand, Fork, InstallCommand, ServerFork},
+        forks::{self, Fork, InstallCommand, ServerFork},
         jar_parser,
         server_info::ServerInfo,
     },
@@ -40,66 +40,7 @@ impl Error for DirectoryError {}
 
 pub async fn run() -> anyhow::Result<()> {
     fs::create_dir_all(instances_dir()).expect("Unable to create instances directory");
-
-    match Cli::parse().command {
-        Command::LsServers => list_servers(),
-        Command::LsMods {
-            server_name,
-            want_update,
-        } => {
-            list_mods(&server_name, want_update.yes, &Client::new()).await?;
-        }
-        Command::FetchModVersions { name, featured } => {
-            fetch_mod_versions(&name, featured, &Client::new()).await?;
-        }
-        Command::Fetch { command } => {
-            let s = match command {
-                FetchCommand::Vanilla { filter } => {
-                    forks::Vanilla::fetch_availables(filter.all, &Client::new()).await?
-                }
-                FetchCommand::Fabric { filter } => {
-                    forks::Fabric::fetch_availables(filter.all, &Client::new()).await?
-                }
-                FetchCommand::Forge {} => {
-                    forks::Forge::fetch_availables((), &Client::new()).await?
-                }
-            };
-            println!("{s}");
-        }
-        Command::SearchMod {
-            name,
-            facets,
-            index,
-            limit,
-        } => search_mod(&name, &facets, index, limit, &Client::new()).await?,
-        Command::Set {
-            server_name,
-            max_memory,
-            min_memory,
-            java_home,
-        } => set_config(&server_name, max_memory, min_memory, java_home)?,
-        Command::Install {
-            command,
-            server_name,
-            accept_eula,
-        } => install(command, &server_name, accept_eula.yes, &Client::new()).await?,
-        Command::InstallMod {
-            server_name,
-            mod_id,
-        } => install_mod(&server_name, &mod_id, &Client::new()).await?,
-        Command::GenStartScript { server_name } => generate_start_script(&server_name)?,
-        Command::UpdateServerJar {
-            server_name,
-            version_args,
-        } => {
-            update_server_jar(&version_args, &server_name, &Client::new()).await?;
-        }
-        Command::AcceptEula { server_name } => generate_eula_accept_file(&server_name)?,
-        Command::Start => todo!(),
-        Command::Info { server_name } => show_server_info(&server_name)?,
-    }
-
-    Ok(())
+    Cli::parse().command.run().await
 }
 
 /// List the directories in the instances directory

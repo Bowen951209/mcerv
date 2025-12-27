@@ -1,6 +1,7 @@
 use crate::{
     network::{fabric_meta, forge_meta, modrinth::SearchIndex, vanilla_meta},
     system::forks::{FetchCommand, InstallCommand},
+    *,
 };
 use clap::{ArgAction, Args, Parser, Subcommand};
 use reqwest::Client;
@@ -210,4 +211,68 @@ pub enum Command {
     Start,
     /// Show the info of the target server
     Info { server_name: String },
+}
+
+impl Command {
+    pub async fn run(self) -> anyhow::Result<()> {
+        match self {
+            Command::LsServers => list_servers(),
+            Command::LsMods {
+                server_name,
+                want_update,
+            } => {
+                list_mods(&server_name, want_update.yes, &Client::new()).await?;
+            }
+            Command::FetchModVersions { name, featured } => {
+                fetch_mod_versions(&name, featured, &Client::new()).await?;
+            }
+            Command::Fetch { command } => {
+                let s = match command {
+                    FetchCommand::Vanilla { filter } => {
+                        forks::Vanilla::fetch_availables(filter.all, &Client::new()).await?
+                    }
+                    FetchCommand::Fabric { filter } => {
+                        forks::Fabric::fetch_availables(filter.all, &Client::new()).await?
+                    }
+                    FetchCommand::Forge {} => {
+                        forks::Forge::fetch_availables((), &Client::new()).await?
+                    }
+                };
+                println!("{s}");
+            }
+            Command::SearchMod {
+                name,
+                facets,
+                index,
+                limit,
+            } => search_mod(&name, &facets, index, limit, &Client::new()).await?,
+            Command::Set {
+                server_name,
+                max_memory,
+                min_memory,
+                java_home,
+            } => set_config(&server_name, max_memory, min_memory, java_home)?,
+            Command::Install {
+                command,
+                server_name,
+                accept_eula,
+            } => install(command, &server_name, accept_eula.yes, &Client::new()).await?,
+            Command::InstallMod {
+                server_name,
+                mod_id,
+            } => install_mod(&server_name, &mod_id, &Client::new()).await?,
+            Command::GenStartScript { server_name } => generate_start_script(&server_name)?,
+            Command::UpdateServerJar {
+                server_name,
+                version_args,
+            } => {
+                update_server_jar(&version_args, &server_name, &Client::new()).await?;
+            }
+            Command::AcceptEula { server_name } => generate_eula_accept_file(&server_name)?,
+            Command::Start => todo!(),
+            Command::Info { server_name } => show_server_info(&server_name)?,
+        }
+
+        Ok(())
+    }
 }
