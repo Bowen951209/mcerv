@@ -9,6 +9,7 @@ use crate::{
     system::jar_parser,
 };
 use anyhow::anyhow;
+use async_trait::async_trait;
 use clap::Parser;
 use clap::Subcommand;
 use reqwest::Client;
@@ -217,6 +218,7 @@ impl Display for DetectServerInfoError {
 
 impl Error for DetectServerInfoError {}
 
+#[async_trait]
 pub trait Fork {
     type FetchConfig;
     type Version;
@@ -235,6 +237,7 @@ pub trait Fork {
     -> anyhow::Result<String>;
 }
 
+#[async_trait]
 impl Fork for Vanilla {
     type FetchConfig = bool;
     type Version = String;
@@ -270,6 +273,7 @@ impl Fork for Vanilla {
     }
 }
 
+#[async_trait]
 impl Fork for Fabric {
     type FetchConfig = bool;
     type Version = (String, String, String); // (game_version, loader_version, installer_version)
@@ -305,6 +309,7 @@ impl Fork for Fabric {
     }
 }
 
+#[async_trait]
 impl Fork for Forge {
     type FetchConfig = ();
     type Version = String;

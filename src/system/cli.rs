@@ -3,9 +3,11 @@ use crate::{
     system::forks::{FetchCommand, InstallCommand},
     *,
 };
+use async_trait::async_trait;
 use clap::{ArgAction, Args, Parser, Subcommand};
 use reqwest::Client;
 
+#[async_trait]
 pub trait Versions {
     type V;
     async fn versions(&self, client: &Client) -> anyhow::Result<Self::V>;
@@ -43,6 +45,7 @@ pub struct VanillaVersionArgs {
     pub version: Option<String>,
 }
 
+#[async_trait]
 impl Versions for VanillaVersionArgs {
     type V = String;
     async fn versions(&self, client: &Client) -> anyhow::Result<Self::V> {
@@ -76,6 +79,7 @@ pub struct FabricVersionArgs {
     pub installer_version: Option<String>,
 }
 
+#[async_trait]
 impl Versions for FabricVersionArgs {
     type V = (String, String, String);
     async fn versions(&self, client: &Client) -> anyhow::Result<Self::V> {
@@ -111,6 +115,7 @@ pub struct ForgeVersionArgs {
     pub version: Option<String>,
 }
 
+#[async_trait]
 impl Versions for ForgeVersionArgs {
     type V = String;
     async fn versions(&self, client: &Client) -> anyhow::Result<Self::V> {
